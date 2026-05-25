@@ -31,7 +31,8 @@ Implemented:
   rooted next-tool hints, token-aware field signals, and emitted-byte budget
   accounting. Rooted hints now render top-level arrays as `.[]` and avoid
   non-selective scalar presence predicates when every candidate field appears
-  on every record.
+  on every record. Dominant top-level array fields with non-identifier keys use
+  jq-safe root bracket syntax like `.["items-list"][]`.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -248,6 +249,7 @@ Start here:
    - `description` / `apiProtectionEnabled` are not tagged as `keyword:ip`
    - next-tool hints use `$.result`, `$.list[]`, or `$[]`
    - top-level array commands render `.[]`, not `[]`
+   - dominant top-level array fields render `.["key"][]`, not `["key"][]`
    - presence `select(...)` hints are only emitted for narrower observed paths
 4. Use that feedback to decide whether to:
    - improve `profile`

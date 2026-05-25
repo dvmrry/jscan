@@ -272,7 +272,8 @@ The first version can emit deterministic next-tool hints:
 
 Hints should use detected record roots when possible. For example, Splunk row
 wrappers should suggest commands rooted under `.result`, paged API wrappers
-should use `.list[]`, and top-level arrays should use `.[]`.
+should use `.list[]`, top-level arrays should use `.[]`, and top-level array
+fields whose keys require bracket syntax should use `.[...][]`.
 
 Presence filters should only be emitted when the observed path is narrower than
 the detected record root. If every candidate field appears on every record, the

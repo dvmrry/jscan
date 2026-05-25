@@ -289,6 +289,48 @@ fn profile_top_level_array_next_tool_uses_dot_array_wildcard() {
 }
 
 #[test]
+fn profile_dominant_array_field_with_bracket_key_uses_dot_bracket_access() {
+    let output = command_json(
+        &["profile", "--json", "--budget", "20kb"],
+        Some(
+            r#"{
+                "items-list": [
+                    {"id": 1, "status": "present"},
+                    {"id": 2, "status": "present", "rare": true}
+                ]
+            }"#,
+        ),
+    );
+
+    assert_json_array_contains(
+        &output["record_roots"],
+        "display_path",
+        "$[\"items-list\"][]",
+    );
+    assert_json_array_contains(
+        &output["next_tools"],
+        "command",
+        "jaq -c '.[\"items-list\"][] | select(.rare? != null)' <input>",
+    );
+    assert_json_array_contains(
+        &output["next_tools"],
+        "command",
+        "jg '$[\"items-list\"][].rare' <input>",
+    );
+    assert!(
+        !output["next_tools"]
+            .as_array()
+            .expect("next_tools")
+            .iter()
+            .any(|tool| tool["command"]
+                .as_str()
+                .expect("command")
+                .starts_with("jaq -c '[\"items-list\"]")),
+        "root bracket access must render as .[\"items-list\"], not an array literal"
+    );
+}
+
+#[test]
 fn profile_budget_reports_omissions_when_trimmed() {
     let output = command_json(
         &[

@@ -285,10 +285,19 @@ New findings from that rerun:
   wrappers, but often non-selective because the chosen field existed on every
   record. In those cases the command validated the record root but did not
   narrow the next query.
+- Dominant top-level array fields whose key requires bracket syntax had the
+  same root-expression bug. A wrapper like `{"items-list":[...]}` produced
+  `["items-list"][]`, which queries an array literal; the correct jq/jaq root is
+  `.["items-list"][]`. The display root should also be `$["items-list"][]`,
+  not `$.items-list[]`.
 
 Adjustment:
 
 - Root wildcard rendering should produce `.[]` for top-level arrays.
+- Root bracket-key rendering should produce `.[...]`, not a bracket expression
+  with no leading dot.
+- Dominant-array record-root display paths should use bracket syntax for keys
+  that are not jq identifiers.
 - Next-tool hints should only emit a scalar presence `select(...)` when the
   candidate path is narrower than the detected record root. If no narrower path
   is available, the hint should project the record root and say no selective

@@ -369,7 +369,7 @@ fn detect_record_roots(sources: &[SourceReport]) -> Vec<RecordRootFact> {
         if let Some(field) = dominant_array_field(source) {
             roots.push(record_root(
                 source,
-                &format!("$.{}[]", display_key(&field.name)),
+                &format!("{}[]", display_root_field_path(&field.name)),
                 &format!("/{}/*", escape_pointer(&field.name)),
                 0.75,
                 "dominant top-level array field",
@@ -768,9 +768,9 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
     let jaq_command = format!("jaq -c {} <input>", shell_quote(&structural_filter));
     let jq_command = format!("jq -c {} <input>", shell_quote(&structural_filter));
     let jg_pattern = candidate
-        .map(|fact| fact.display_path.as_str())
-        .or(root.map(|root| root.display_path.as_str()))
-        .unwrap_or("<path-pattern>");
+        .map(|fact| display_path_from_pointer(&fact.pointer_template))
+        .or(root.map(|root| root.display_path.clone()))
+        .unwrap_or_else(|| "<path-pattern>".to_string());
     let structural_reason = if candidate.is_some() {
         format!("filter from detected record root {root_label} using a narrower observed path")
     } else {
@@ -803,7 +803,7 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
             reason: "fast JSON-aware field or path presence checks using observed paths"
                 .to_string(),
             caveat: "does not replace jq/jaq for value predicates and aggregation".to_string(),
-            command: format!("jg {} <input>", shell_quote(jg_pattern)),
+            command: format!("jg {} <input>", shell_quote(&jg_pattern)),
         },
     ]
 }
@@ -997,6 +997,9 @@ fn jq_expr_from_segments(segments: &[String], optional_last: bool) -> String {
                 output.push('?');
             }
         } else {
+            if output.is_empty() {
+                output.push('.');
+            }
             output.push('[');
             output.push_str(&serde_json::to_string(segment).expect("serializing jq key"));
             output.push(']');
@@ -1139,15 +1142,37 @@ fn under_record_root(pointer: &str, roots: &[&str]) -> bool {
         .any(|root| relative_pointer_segments(root, pointer).is_some())
 }
 
-fn display_key(key: &str) -> String {
-    if key
-        .chars()
-        .all(|ch| ch == '_' || ch == '-' || ch.is_ascii_alphanumeric())
-    {
-        key.to_string()
+fn display_root_field_path(key: &str) -> String {
+    if is_jq_identifier(key) {
+        format!("$.{key}")
     } else {
-        serde_json::to_string(key).expect("serializing display key")
+        format!(
+            "$[{}]",
+            serde_json::to_string(key).expect("serializing display key")
+        )
     }
+}
+
+fn display_path_from_pointer(pointer: &str) -> String {
+    let segments = pointer_segments(pointer);
+    if segments.is_empty() {
+        return "$".to_string();
+    }
+
+    let mut output = "$".to_string();
+    for segment in segments {
+        if segment == "*" {
+            output.push_str("[]");
+        } else if is_jq_identifier(&segment) {
+            output.push('.');
+            output.push_str(&segment);
+        } else {
+            output.push('[');
+            output.push_str(&serde_json::to_string(&segment).expect("serializing display key"));
+            output.push(']');
+        }
+    }
+    output
 }
 
 fn escape_pointer(value: &str) -> String {
