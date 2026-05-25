@@ -247,6 +247,7 @@ Compare against:
 - `drivel`
 - `gron`
 - `fastgron`
+- `duckdb`
 
 Capture:
 

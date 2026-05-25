@@ -685,6 +685,48 @@ It should be:
 > fields, field coverage, scalar/array drift, and next-query context from messy
 > JSON/JSONL evidence?
 
+### Downstream Wheel Check
+
+A downstream run pulled commit `da49ab8` and ran the existing test, benchmark,
+and workflow-trial harnesses successfully. It also installed several additional
+competitors via Homebrew for a quick wheel check:
+
+- `quicktype 23.2.6`
+- `gron 0.7.1`
+- `fastgron 0.7.7`
+- `duckdb 1.5.3`
+
+Local install note: installing `quicktype` broke Homebrew's Node linkage through
+`llhttp` on that machine; `brew reinstall node` repaired it. Treat quicktype
+installation as a potential benchmark setup hazard.
+
+Findings:
+
+- `quicktype` is real prior art for generating JSON Schema or code models from
+  valid JSON samples. It handled the ZIA top-level array and paged wrapper cases
+  quickly and produced useful schemas with required fields and enums.
+- `quicktype` did not solve the core `profile` problem on Splunk JSONL named
+  `.json`: record-root detection, wrapper/container detection, source lines,
+  bounded evidence, noisy directories, and next-tool routing.
+- `gron` and `fastgron` are real prior art for making JSON grep-friendly.
+  `fastgron` looked especially strong for flattened-output searches, so broad
+  `find` / `grep` surface area must be scoped carefully.
+- `duckdb` is strong for table-shaped JSON/JSONL once the shape is known. It
+  counted representative Splunk, ZIA, and paged-wrapper cases correctly, but it
+  requires the user or agent to already know the SQL shape and nested field
+  syntax.
+
+Updated lane:
+
+> Bounded reconnaissance over unknown JSON evidence: classify input, detect
+> wrapper/root, report paths/types/counts, samples/common values, and recommend
+> the right next tool.
+
+Riskier lane:
+
+> Becoming a structural query engine. `fastgron`, `jg`, `jq`/`jaq`, and
+> DuckDB already cover a lot of that territory.
+
 ## Name Check
 
 Do not finalize the name until the wedge is chosen.
