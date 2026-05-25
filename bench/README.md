@@ -43,9 +43,7 @@ Some newer schema competitors are not directly packaged in nixpkgs yet.
 Bootstrap them separately before full comparison runs:
 
 ```sh
-cargo install genson-cli drivel
-uv tool install json-to-schema
-uv tool install schemax-cli
+./bench/bootstrap-competitors.sh
 ```
 
 Those extras cover `genson-cli`, `json-to-schema`, `schemax-cli`, and `drivel`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -39,10 +39,20 @@ const tools = {
   jaq: which("jaq"),
   rg: which("rg"),
   jg: which("jg"),
+  jt: which("jt"),
+  quicktype: which("quicktype"),
+  gron: which("gron"),
+  fastgron: which("fastgron"),
+  duckdb: which("duckdb"),
+  gensonCli: which("genson-cli"),
+  jsonToSchema: which("json-to-schema"),
+  schemax: which("schemax"),
+  drivel: which("drivel"),
 };
 
 const fixtures = {
   splunk10k: join(dataDir, "splunk-10k.jsonl"),
+  splunkArray10k: join(dataDir, "splunk-10k-array.json"),
   zia10k: join(dataDir, "zia-array-10k.json"),
   paged5k: join(dataDir, "paged-wrapper-5k.json"),
   manySmall: join(dataDir, "many-small"),
@@ -154,6 +164,7 @@ function fail(message) {
 
 function generateFixtures(root) {
   writeSplunkJsonl(join(root, "splunk-10k.jsonl"), 10_000);
+  writeSplunkArray(join(root, "splunk-10k-array.json"), 10_000);
   writeZiaArray(join(root, "zia-array-10k.json"), 10_000);
   writePagedWrapper(join(root, "paged-wrapper-5k.json"), 5_000);
   writeManySmall(join(root, "many-small"), 200, 25);
@@ -161,33 +172,45 @@ function generateFixtures(root) {
 }
 
 function writeSplunkJsonl(path, count) {
-  const statuses = ["open", "close", "timeout", "reset"];
-  const actions = ["ALLOW", "BLOCK", "INSPECT"];
   const lines = [];
   for (let index = 0; index < count; index += 1) {
-    const result = {
-      Host: `edge-${index % 97}`,
-      ConnectionStatus: statuses[index % statuses.length],
-      action: actions[index % actions.length],
-      BytesIn: index * 17,
-      BytesOut: index * 31,
-      sourceIp: `192.0.2.${index % 250}`,
-      destinationIp: `198.51.100.${(index * 7) % 250}`,
-      connector: `connector-${index % 13}`,
-      domainNames:
-        index % 11 === 0
-          ? ["dev.azure.com", `svc-${index % 53}.example.test`]
-          : [`svc-${index % 53}.example.test`],
-    };
-    if (index % 70 === 0) {
-      result.cribl_pipe = "barx";
-    }
-    if (index % 125 === 0) {
-      result.ErrorMessage = "upstream timeout";
-    }
-    lines.push(JSON.stringify({ preview: false, result }));
+    lines.push(JSON.stringify(splunkWrapperRecord(index)));
   }
   writeFileSync(path, `${lines.join("\n")}\n`);
+}
+
+function writeSplunkArray(path, count) {
+  const rows = [];
+  for (let index = 0; index < count; index += 1) {
+    rows.push(splunkWrapperRecord(index));
+  }
+  writeFileSync(path, `${JSON.stringify(rows)}\n`);
+}
+
+function splunkWrapperRecord(index) {
+  const statuses = ["open", "close", "timeout", "reset"];
+  const actions = ["ALLOW", "BLOCK", "INSPECT"];
+  const result = {
+    Host: `edge-${index % 97}`,
+    ConnectionStatus: statuses[index % statuses.length],
+    action: actions[index % actions.length],
+    BytesIn: index * 17,
+    BytesOut: index * 31,
+    sourceIp: `192.0.2.${index % 250}`,
+    destinationIp: `198.51.100.${(index * 7) % 250}`,
+    connector: `connector-${index % 13}`,
+    domainNames:
+      index % 11 === 0
+        ? ["dev.azure.com", `svc-${index % 53}.example.test`]
+        : [`svc-${index % 53}.example.test`],
+  };
+  if (index % 70 === 0) {
+    result.cribl_pipe = "barx";
+  }
+  if (index % 125 === 0) {
+    result.ErrorMessage = "upstream timeout";
+  }
+  return { preview: false, result };
 }
 
 function writeZiaArray(path, count) {
@@ -286,6 +309,14 @@ function benchmarkTasks(f, t) {
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
+    toolTask("count_splunk_records", "jt", [t.jt, f.splunk10k, "count"], "jsont JSONL record count", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("count_splunk_records", "duckdb", [t.duckdb, "-csv", "-noheader", "-c", `select count(*) from read_json_auto('${sqlString(f.splunk10k)}')`], "DuckDB known-shape JSONL count", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
 
     toolTask("field_presence_connection_status", "jq", [t.jq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count", {
       expectedAnswer: "10000",
@@ -307,6 +338,10 @@ function benchmarkTasks(f, t) {
       expectedAnswer: "10000",
       answerFrom: pathCountAnswer("$.result.ConnectionStatus"),
     }),
+    toolTask("field_presence_connection_status", "jt", [t.jt, f.splunk10k, "fields"], "jsont field listing includes .result.ConnectionStatus", {
+      expectedAnswer: "present",
+      answerFrom: stdoutIncludesAnswer(".result.ConnectionStatus"),
+    }),
 
     toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
       expectedAnswer: "2000",
@@ -320,6 +355,10 @@ function benchmarkTasks(f, t) {
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
+    toolTask("filter_zia_block", "duckdb", [t.duckdb, "-csv", "-noheader", "-c", `select count(*) from read_json_auto('${sqlString(f.zia10k)}') where action = 'BLOCK'`], "DuckDB known-shape value predicate over array JSON", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
 
     toolTask("path_inventory_splunk", "jq", [t.jq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jq path inventory baseline", {
       answerFrom: stdoutAnswer,
@@ -330,6 +369,28 @@ function benchmarkTasks(f, t) {
     jscanTask("path_inventory_splunk", [t.jscan, "paths", f.splunk10k, "--json"], "jscan native path/type inventory", {
       answerFrom: pathsLengthAnswer,
     }),
+    toolTask("path_inventory_splunk", "jt", [t.jt, f.splunk10k, "fields"], "jsont field inventory over JSONL", {
+      answerFrom: stdoutLineCountAnswer,
+    }),
+
+    toolTask("schema_splunk_jsonl", "jt", [t.jt, f.splunk10k, "schema"], "jsont schema/frequency profile over JSONL"),
+    toolTask("schema_splunk_jsonl", "quicktype", [t.quicktype, "--lang", "schema", f.splunk10k], "quicktype direct JSONL input; expected to fail on line-delimited JSON"),
+    toolTask("schema_splunk_array", "quicktype", [t.quicktype, "--lang", "schema", f.splunkArray10k], "quicktype schema after JSONL is normalized to an array"),
+    toolTask("schema_paged_wrapper", "quicktype", [t.quicktype, "--lang", "schema", f.paged5k], "quicktype schema over paged JSON wrapper"),
+    toolTask("schema_splunk_jsonl", "genson-cli", [t.gensonCli, "--ndjson", f.splunk10k], "genson-cli schema inference over NDJSON"),
+    toolTask("schema_paged_wrapper", "genson-cli", [t.gensonCli, f.paged5k], "genson-cli schema inference over paged JSON wrapper"),
+    toolTask("schema_splunk_array", "json-to-schema", [t.jsonToSchema, "-i", f.splunkArray10k], "json-to-schema inference after JSONL is normalized to an array"),
+    toolTask("schema_paged_wrapper", "json-to-schema", [t.jsonToSchema, "-i", f.paged5k], "json-to-schema inference over paged JSON wrapper"),
+    toolTask("schema_splunk_array", "schemax", [t.schemax, "infer", f.splunkArray10k], "schemax inference after JSONL is normalized to an array"),
+    toolTask("schema_paged_wrapper", "schemax", [t.schemax, "infer", f.paged5k], "schemax inference over paged JSON wrapper"),
+    toolTask("schema_paged_wrapper", "drivel", [t.drivel, "describe", "--json-schema"], "drivel schema inference over paged JSON wrapper", {
+      stdinFile: f.paged5k,
+    }),
+
+    toolTask("flatten_zia_array", "gron", [t.gron, f.zia10k], "gron flattening baseline over top-level JSON array"),
+    toolTask("flatten_zia_array", "fastgron", [t.fastgron, f.zia10k], "fastgron flattening baseline over top-level JSON array"),
+    toolTask("flatten_paged_wrapper", "gron", [t.gron, f.paged5k], "gron flattening baseline over paged wrapper"),
+    toolTask("flatten_paged_wrapper", "fastgron", [t.fastgron, f.paged5k], "fastgron flattening baseline over paged wrapper"),
   ];
 }
 
@@ -360,14 +421,15 @@ function runBenchmark(task, opts) {
     return missingRow(task);
   }
 
+  const stdinBuffer = task.stdinFile ? readFileSync(task.stdinFile) : null;
   for (let index = 0; index < opts.warmups; index += 1) {
-    runOnce(task.command);
+    runOnce(task.command, stdinBuffer);
   }
 
   const runs = [];
   let last = null;
   for (let index = 0; index < opts.runs; index += 1) {
-    last = runOnce(task.command);
+    last = runOnce(task.command, stdinBuffer);
     runs.push(last);
   }
 
@@ -426,6 +488,14 @@ function stdoutAnswer(stdout) {
   return stdout.toString("utf8").trim();
 }
 
+function stdoutLineCountAnswer(stdout) {
+  return String(countLines(stdout));
+}
+
+function stdoutIncludesAnswer(needle) {
+  return (stdout) => (stdout.toString("utf8").includes(needle) ? "present" : "missing");
+}
+
 function pathCountAnswer(displayPath) {
   return (stdout) => {
     const report = JSON.parse(stdout.toString("utf8"));
@@ -439,11 +509,12 @@ function pathsLengthAnswer(stdout) {
   return String(report.paths.length);
 }
 
-function runOnce(command) {
+function runOnce(command, stdinBuffer = null) {
   const start = process.hrtime.bigint();
   const result = spawnSync(command[0], command.slice(1), {
     cwd: repoRoot,
     env: { ...process.env, NO_COLOR: "1" },
+    input: stdinBuffer,
     maxBuffer: 512 * 1024 * 1024,
   });
   const end = process.hrtime.bigint();
@@ -602,6 +673,10 @@ function which(name) {
     return null;
   }
   return result.stdout.trim() || null;
+}
+
+function sqlString(value) {
+  return String(value).replaceAll("'", "''");
 }
 
 function runRequired(command, args, cwd) {

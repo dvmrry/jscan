@@ -68,8 +68,10 @@
             ];
 
             shellHook = ''
+              export PATH="$PWD/.bench-tools/cargo/bin:$PWD/.bench-tools/bin:$PATH"
               echo "jscan dev shell: Rust, Node, jq/jaq/rg/jg, jt/jsont, quicktype, gron/fastgron, duckdb"
-              echo "extra competitors still need bootstrap: genson-cli, json-to-schema, schemax-cli, drivel"
+              echo "repo-local extras on PATH: .bench-tools/cargo/bin, .bench-tools/bin"
+              echo "run ./bench/bootstrap-competitors.sh for genson-cli, json-to-schema, schemax, drivel"
             '';
           };
         }
