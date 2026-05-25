@@ -62,6 +62,9 @@ These gates should be handled in order:
 - Fill in [RESEARCH.md](RESEARCH.md).
 - Incorporate the private overlay report: initial signal favors
   Scout/Locator-first with a bounded `profile` command.
+- Incorporate the initial private benchmark report: `rg`, `jq`/`jaq`, and
+  `jg` each win different tasks, so `profile` should recommend the right next
+  tool instead of claiming universal speed.
 - Pick 8 to 10 seed tasks.
 - Write best-known competitor commands for each task.
 - Classify each task as Scout, Engine, Both, or Not ours.

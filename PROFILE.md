@@ -112,6 +112,7 @@ The JSON output should be versioned, for example:
   "type_variations": [],
   "common_values": [],
   "samples": [],
+  "next_tools": [],
   "next_commands": []
 }
 ```
@@ -256,6 +257,36 @@ Suggestions should be clearly labeled as commands, not authoritative queries.
 Do not suggest `find` until that command exists. Command text should use the
 resolved binary name once naming is settled.
 
+### Suggested Next Tools
+
+`profile` should help route the next step rather than pretending this tool owns
+every task.
+
+The first version can emit deterministic next-tool hints:
+
+- `rg` for raw text smoke tests when structural safety is not required.
+- `jq` or `jaq` for aggregation and value predicates.
+- `jg` / `jsongrep` for field-presence or path-style discovery.
+- this tool's `paths` / `shape` commands for deeper local reconnaissance.
+
+Hints should include:
+
+- tool name
+- reason
+- caveat
+- example command when safe
+
+Example:
+
+```json
+{
+  "tool": "rg",
+  "reason": "fast raw smoke test for a rare string",
+  "caveat": "counts text occurrences, not matching JSON objects",
+  "command": "rg 'dev.azure.com' <input>"
+}
+```
+
 ## CLI Shape
 
 Initial command:
@@ -308,7 +339,8 @@ Build `profile` from existing machinery first:
 5. Add container-shape detection from that per-source summary.
 6. Add record-root guessing.
 7. Add advisory budgeted report assembly using top-N limits and section drops.
-8. Add deterministic next-command suggestions for existing commands only.
+8. Add deterministic next-tool and next-command suggestions for existing
+   commands only.
 
 Avoid adding a query language while implementing `profile`.
 
@@ -346,10 +378,13 @@ The benchmark agent should evaluate whether `profile` reduces:
 - number of exploratory commands needed
 - total bytes emitted to the agent
 - total wall time before a useful next query
+- wrong-tool attempts, such as using raw text search where object-level
+  structural semantics are required
 
 Baseline comparison should include:
 
 - repeated `jq`/`jaq` exploratory commands
+- raw `rg` smoke tests
 - `jscan paths` + `jscan shape`
 - `jsongrep` where applicable
 - `jsont schema` / `jsont tree` / `jsont find` where available

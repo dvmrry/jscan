@@ -174,6 +174,47 @@ Important caveat:
   `cargo` was unavailable, so this validation was based on local data inspection
   with existing tools rather than direct prototype execution.
 
+### Initial Private Benchmark Report
+
+A second data-adjacent pass ran a small local benchmark against representative
+private artifacts. The benchmark runner used 10 runs per command and reported
+median seconds. `jsongrep` was installed via Homebrew as `jg` version 0.9.0.
+
+Representative results, redacted/summarized:
+
+| Task | jq | jaq | rg | jg |
+| --- | ---: | ---: | ---: | ---: |
+| Count 10k Splunk NDJSON records | 0.248s | 0.120s | 0.046s | n/a |
+| Structured NDJSON filter, count close + nonzero bytes | 0.267s | 0.145s | 0.050s | n/a |
+| Field presence in NDJSON: `ConnectionStatus` | 0.260s | 0.138s | 0.040s | 0.126s |
+| Heterogeneous path inventory on BARX export | 0.182s | 0.298s | n/a | n/a |
+| ZIA array filter: `action == BLOCK` | 0.028s | 0.025s | 0.030s | n/a |
+| ZPA wrapper domain match: `dev.azure.com` | 0.035s | 0.042s | 0.033s | n/a |
+| ZPA `domainNames` field presence | 0.023s | 0.029s | 0.032s | 0.024s |
+
+Important semantic note:
+
+- In one ZPA domain match, raw `rg` returned 4 text occurrences while
+  JSON-aware `jq`/`jaq` returned 1 matching application object. This is the core
+  raw-speed vs. structural-safety tradeoff.
+
+Benchmark takeaways:
+
+- `rg` is the fastest useful smoke-test tool.
+- `jaq` was materially faster than `jq` on larger NDJSON streaming tasks.
+- `jq` was better than `jaq` for at least one path-inventory expression.
+- `jg` should stay in the competitor set: for field-presence/path-style
+  discovery it is fast, ergonomic, and JSONL-aware.
+- `jg` does not replace `jq`/`jaq` for aggregation and value predicates in these
+  flows.
+
+Product implication:
+
+> The tool should not compete with `rg` on raw speed or with `jq`/`jaq` on
+> transformation. It should own bounded structural reconnaissance: detect JSON
+> vs. NDJSON, expose paths/types/samples/source lines, and tell the agent which
+> of `rg`, `jq`, `jaq`, or `jg` is the right next tool.
+
 Candidate workflow to test:
 
 ```sh
@@ -188,6 +229,10 @@ Measurement should include not only raw speed, but also:
 - total bytes/tokens emitted to the agent
 - whether source/line/path evidence is sufficient to avoid another pass
 - whether the output improves generated Splunk/Grafana/KQL/API queries
+- whether the profile can recommend the right next local tool:
+  - `rg` for raw smoke tests
+  - `jq`/`jaq` for structural aggregation/value predicates
+  - `jg` for path/field-presence discovery
 
 ## Competitor Set
 
