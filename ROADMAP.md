@@ -228,12 +228,13 @@ Measure first, then optimize.
 
 Start here:
 
-1. Open [RESEARCH.md](RESEARCH.md).
-2. Read the private overlay agent report section.
-3. Open [PROFILE.md](PROFILE.md).
-4. Review or revise the `profile --budget 20kb --json` contract.
-5. Pick 5 to 8 seed tasks matching the observed private workflow shapes.
-6. Write the best competitor command for each task.
-7. Classify each task as Scout, Engine, Both, or Not ours.
-8. Decide the wedge and name.
-9. Then return to Phase 0 foundation work.
+1. Open [DOWNSTREAM_REVIEW.md](DOWNSTREAM_REVIEW.md).
+2. Have the private-data agent run `jscan profile <input> --budget 20kb --json`
+   on representative evidence.
+3. Use that feedback to decide whether to:
+   - improve `profile`
+   - add focused grep/find
+   - improve benchmarks
+   - pause/rethink
+4. Then return to [RESEARCH.md](RESEARCH.md) and [PROFILE.md](PROFILE.md) as
+   needed.
