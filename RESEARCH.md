@@ -768,19 +768,24 @@ Go is faster than Rust; it may simply do less work or emit a smaller artifact.
 The fair question is which tool produces the needed artifact fastest and with
 the least agent follow-up.
 
-Follow-up test:
+Follow-up tests:
 
 - Added `jscan paths --plain` to isolate the plain path-list artifact from the
   larger JSON report.
-- On synthetic Splunk JSONL, `jscan paths --plain` was effectively identical to
+- The first implementation reused full path collection, so it was effectively
+  identical to
   the richer outputs: `paths --json` 55.77 ms, `paths --plain` 55.63 ms, and
   TSV `paths` 55.62 ms across five runs.
-- `jt fields` remained faster at 39.90 ms, but it emits a narrower field list
-  without the root path or array-item template paths that `jscan` includes.
-- That suggests the local `jscan paths` cost is dominated by parsing and path
-  collection/bookkeeping, not JSON pretty rendering or output volume.
-- If we continue optimizing this lane, profile path collection directly before
-  changing language/runtime assumptions.
+- The dedicated plain-path collector then skipped source summaries, type
+  counts, samples, and per-path counts. That improved the row to 47.07 ms.
+- Replacing per-value path-segment vector cloning with a mutable display path
+  stack improved it again to 24.75 ms.
+- `jt fields` was 40.09 ms in the same run. It emits a narrower field list
+  without the root path or array-item template paths that `jscan --plain`
+  includes.
+- This confirms the earlier slow result was overcollection, not a Rust-vs-Go
+  verdict. The richer `jscan paths`/`profile` outputs still cost about 56-58 ms
+  on this fixture, but a focused scout lane can be materially faster.
 
 ## Name Check
 

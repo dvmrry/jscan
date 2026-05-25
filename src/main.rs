@@ -5,8 +5,8 @@ use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
     InputFormat, InputOptions, OutputMode, PathsOptions, ProfileOptions, ShapeOptions,
-    build_profile, collect_paths, discover_inputs, infer_shape, write_path_list, write_paths,
-    write_profile, write_shape,
+    build_profile, collect_path_list, collect_paths, discover_inputs, infer_shape, write_path_list,
+    write_paths, write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -111,24 +111,26 @@ fn main() -> Result<()> {
         Command::Paths(cmd) => {
             ensure_plain_paths_is_compatible(&cmd)?;
             let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
-            let report = collect_paths(
-                &inputs,
-                &input_options(&cmd.scan),
-                &PathsOptions {
-                    samples_per_path: cmd.scan.samples,
-                    sample_max_chars: cmd.scan.sample_max_chars,
-                },
-            )?;
-
             let stdout = io::stdout();
             let mut lock = stdout.lock();
             if cmd.plain {
+                let report = collect_path_list(&inputs, &input_options(&cmd.scan))?;
                 write_path_list(&mut lock, &report)?;
+                lock.flush()?;
+                enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
             } else {
+                let report = collect_paths(
+                    &inputs,
+                    &input_options(&cmd.scan),
+                    &PathsOptions {
+                        samples_per_path: cmd.scan.samples,
+                        sample_max_chars: cmd.scan.sample_max_chars,
+                    },
+                )?;
                 write_paths(&mut lock, &report, output_mode(&cmd.scan))?;
+                lock.flush()?;
+                enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
             }
-            lock.flush()?;
-            enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
         }
         Command::Shape(cmd) => {
             let output = output_mode(&cmd.scan);

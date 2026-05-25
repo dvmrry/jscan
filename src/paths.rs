@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
 
@@ -24,6 +24,15 @@ pub struct PathReport {
     pub errors_truncated: bool,
     pub sources: Vec<SourceReport>,
     pub paths: Vec<PathEntry>,
+    pub errors: Vec<ScanError>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PathListReport {
+    pub partial: bool,
+    pub error_count: usize,
+    pub errors_truncated: bool,
+    pub paths: Vec<String>,
     pub errors: Vec<ScanError>,
 }
 
@@ -60,7 +69,7 @@ pub struct PathEntry {
     pub samples: Vec<PathSample>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PathSegment {
     Field { name: String },
@@ -120,6 +129,26 @@ pub fn collect_paths(
     Ok(state.finish())
 }
 
+pub fn collect_path_list(
+    inputs: &[DiscoveredInput],
+    input_options: &InputOptions,
+) -> Result<PathListReport> {
+    let mut state = PathListState {
+        paths: HashSet::new(),
+        errors: Vec::new(),
+        error_count: 0,
+        max_errors: input_options.max_errors,
+    };
+
+    for input in inputs {
+        let label = input_label(input);
+        let format = effective_format(input, input_options.format);
+        process_path_list_input(&mut state, input, &label, format);
+    }
+
+    Ok(state.finish())
+}
+
 fn process_input(
     state: &mut CollectorState,
     source_state: &mut SourceState,
@@ -130,6 +159,19 @@ fn process_input(
         InputFormat::Json => process_json_document(state, source_state, input, &source),
         InputFormat::Jsonl => process_jsonl_input(state, source_state, input, &source),
         InputFormat::Auto => process_auto_input(state, source_state, input, &source),
+    }
+}
+
+fn process_path_list_input(
+    state: &mut PathListState,
+    input: &DiscoveredInput,
+    source: &str,
+    format: InputFormat,
+) {
+    match format {
+        InputFormat::Json => process_path_list_json_document(state, input, source),
+        InputFormat::Jsonl => process_path_list_jsonl_input(state, input, source),
+        InputFormat::Auto => process_path_list_auto_input(state, input, source),
     }
 }
 
@@ -150,6 +192,17 @@ fn process_json_document(
         return;
     };
     process_json_contents(state, source_state, source, &contents);
+}
+
+fn process_path_list_json_document(
+    state: &mut PathListState,
+    input: &DiscoveredInput,
+    source: &str,
+) {
+    let Some(contents) = read_to_string_for_path_list(state, input, source) else {
+        return;
+    };
+    process_path_list_json_contents(state, source, &contents);
 }
 
 fn process_auto_input(
@@ -196,6 +249,37 @@ fn process_auto_input(
     }
 }
 
+fn process_path_list_auto_input(state: &mut PathListState, input: &DiscoveredInput, source: &str) {
+    let Some(contents) = read_to_string_for_path_list(state, input, source) else {
+        return;
+    };
+
+    if contents.trim().is_empty() {
+        return;
+    }
+
+    match serde_json::from_str::<Value>(&contents) {
+        Ok(value) => visit_path_list_root(state, &value),
+        Err(error) if looks_line_delimited(&contents) => {
+            let records = process_path_list_jsonl_contents(state, source, &contents);
+            if records == 0 {
+                state.push_error(ScanError {
+                    source: source.to_string(),
+                    line: Some(error.line()),
+                    message: error.to_string(),
+                });
+            }
+        }
+        Err(error) => {
+            state.push_error(ScanError {
+                source: source.to_string(),
+                line: Some(error.line()),
+                message: error.to_string(),
+            });
+        }
+    }
+}
+
 fn process_json_contents(
     state: &mut CollectorState,
     source_state: &mut SourceState,
@@ -221,8 +305,51 @@ fn process_json_contents(
     }
 }
 
+fn process_path_list_json_contents(state: &mut PathListState, source: &str, contents: &str) {
+    if contents.trim().is_empty() {
+        return;
+    }
+
+    match serde_json::from_str::<Value>(contents) {
+        Ok(value) => visit_path_list_root(state, &value),
+        Err(error) => {
+            state.push_error(ScanError {
+                source: source.to_string(),
+                line: Some(error.line()),
+                message: error.to_string(),
+            });
+        }
+    }
+}
+
 fn read_to_string(
     state: &mut CollectorState,
+    input: &DiscoveredInput,
+    source: &str,
+) -> Option<String> {
+    let result = match input {
+        DiscoveredInput::Stdin => {
+            let mut contents = String::new();
+            io::stdin().read_to_string(&mut contents).map(|_| contents)
+        }
+        DiscoveredInput::File(path) => fs::read_to_string(path),
+    };
+
+    match result {
+        Ok(contents) => Some(contents),
+        Err(error) => {
+            state.push_error(ScanError {
+                source: source.to_string(),
+                line: None,
+                message: format!("could not read input: {error}"),
+            });
+            None
+        }
+    }
+}
+
+fn read_to_string_for_path_list(
+    state: &mut PathListState,
     input: &DiscoveredInput,
     source: &str,
 ) -> Option<String> {
@@ -268,6 +395,65 @@ fn process_jsonl_input(
                 });
             }
         },
+    }
+}
+
+fn process_path_list_jsonl_input(state: &mut PathListState, input: &DiscoveredInput, source: &str) {
+    match input {
+        DiscoveredInput::Stdin => {
+            let stdin = io::stdin();
+            process_path_list_jsonl_reader(state, source, stdin.lock());
+        }
+        DiscoveredInput::File(path) => match File::open(path) {
+            Ok(file) => process_path_list_jsonl_reader(state, source, BufReader::new(file)),
+            Err(error) => {
+                state.push_error(ScanError {
+                    source: source.to_string(),
+                    line: None,
+                    message: format!("could not read input: {error}"),
+                });
+            }
+        },
+    }
+}
+
+fn process_path_list_jsonl_reader<R: BufRead>(
+    state: &mut PathListState,
+    source: &str,
+    mut reader: R,
+) {
+    let mut line = String::new();
+    let mut line_number = 0;
+
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {
+                line_number += 1;
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+
+                match serde_json::from_str::<Value>(trimmed) {
+                    Ok(value) => visit_path_list_root(state, &value),
+                    Err(error) => state.push_error(ScanError {
+                        source: source.to_string(),
+                        line: Some(line_number),
+                        message: error.to_string(),
+                    }),
+                }
+            }
+            Err(error) => {
+                state.push_error(ScanError {
+                    source: source.to_string(),
+                    line: Some(line_number + 1),
+                    message: format!("could not read line: {error}"),
+                });
+                break;
+            }
+        }
     }
 }
 
@@ -372,6 +558,36 @@ fn parse_jsonl_buffer(source: &str, contents: &str, max_errors: usize) -> Buffer
     }
 }
 
+fn process_path_list_jsonl_contents(
+    state: &mut PathListState,
+    source: &str,
+    contents: &str,
+) -> usize {
+    let mut records = 0;
+
+    for (line_index, line) in contents.lines().enumerate() {
+        let line_number = line_index + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        match serde_json::from_str::<Value>(trimmed) {
+            Ok(value) => {
+                records += 1;
+                visit_path_list_root(state, &value);
+            }
+            Err(error) => state.push_error(ScanError {
+                source: source.to_string(),
+                line: Some(line_number),
+                message: error.to_string(),
+            }),
+        }
+    }
+
+    records
+}
+
 fn apply_jsonl_buffer(
     state: &mut CollectorState,
     source_state: &mut SourceState,
@@ -416,6 +632,13 @@ struct CollectorState {
     max_errors: usize,
     samples_per_path: usize,
     sample_max_chars: usize,
+}
+
+struct PathListState {
+    paths: HashSet<String>,
+    errors: Vec<ScanError>,
+    error_count: usize,
+    max_errors: usize,
 }
 
 #[derive(Debug)]
@@ -541,6 +764,28 @@ impl CollectorState {
     }
 }
 
+impl PathListState {
+    fn finish(self) -> PathListReport {
+        let mut paths = self.paths.into_iter().collect::<Vec<_>>();
+        paths.sort();
+
+        PathListReport {
+            partial: self.error_count > 0,
+            error_count: self.error_count,
+            errors_truncated: self.error_count > self.errors.len(),
+            paths,
+            errors: self.errors,
+        }
+    }
+
+    fn push_error(&mut self, error: ScanError) {
+        self.error_count += 1;
+        if self.errors.len() < self.max_errors {
+            self.errors.push(error);
+        }
+    }
+}
+
 fn visit_value(
     state: &mut CollectorState,
     source: &str,
@@ -567,6 +812,47 @@ fn visit_value(
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn visit_path_list_root(state: &mut PathListState, value: &Value) {
+    visit_path_list_value(state, &mut "$".to_string(), value);
+}
+
+fn visit_path_list_value(state: &mut PathListState, path: &mut String, value: &Value) {
+    if !state.paths.contains(path.as_str()) {
+        state.paths.insert(path.clone());
+    }
+
+    match value {
+        Value::Array(values) => {
+            let path_len = path.len();
+            path.push_str("[]");
+            for value in values {
+                visit_path_list_value(state, path, value);
+            }
+            path.truncate(path_len);
+        }
+        Value::Object(object) => {
+            for (key, value) in object {
+                let path_len = path.len();
+                push_display_field(path, key);
+                visit_path_list_value(state, path, value);
+                path.truncate(path_len);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn push_display_field(path: &mut String, key: &str) {
+    if is_simple_key(key) {
+        path.push('.');
+        path.push_str(key);
+    } else {
+        path.push('[');
+        path.push_str(&serde_json::to_string(key).expect("serializing path key"));
+        path.push(']');
     }
 }
 

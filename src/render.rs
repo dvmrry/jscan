@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use crate::paths::PathReport;
+use crate::paths::{PathListReport, PathReport};
 use crate::profile::ProfileReport;
 use crate::shape::ShapeReport;
 
@@ -24,9 +24,9 @@ pub fn write_paths<W: Write>(writer: &mut W, report: &PathReport, mode: OutputMo
     Ok(())
 }
 
-pub fn write_path_list<W: Write>(writer: &mut W, report: &PathReport) -> Result<()> {
-    for entry in &report.paths {
-        writeln!(writer, "{}", entry.display_path)?;
+pub fn write_path_list<W: Write>(writer: &mut W, report: &PathListReport) -> Result<()> {
+    for path in &report.paths {
+        writeln!(writer, "{path}")?;
     }
 
     Ok(())
