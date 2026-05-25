@@ -708,6 +708,10 @@ Findings:
 - `quicktype` did not solve the core `profile` problem on Splunk JSONL named
   `.json`: record-root detection, wrapper/container detection, source lines,
   bounded evidence, noisy directories, and next-tool routing.
+- A local smoke reproduced the first-step issue: `quicktype --lang schema`
+  failed on synthetic Splunk JSONL named `.json` with a syntax error, then
+  succeeded after `jq -s .` converted the stream to a JSON array. The resulting
+  schema was useful, but only after another tool normalized the input shape.
 - `gron` and `fastgron` are real prior art for making JSON grep-friendly.
   `fastgron` looked especially strong for flattened-output searches, so broad
   `find` / `grep` surface area must be scoped carefully.
