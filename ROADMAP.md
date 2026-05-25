@@ -240,6 +240,11 @@ Compare against:
 - `jaq`
 - `jsongrep`
 - `jsont` / `jt`
+- `quicktype`
+- `genson-cli`
+- `json-to-schema`
+- `schemax-cli`
+- `drivel`
 - `gron`
 - `fastgron`
 

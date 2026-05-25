@@ -525,6 +525,14 @@ Primary:
 - `jsongrep` / `jg`
 - `jsont` / `jt`
 
+Schema/reconnaissance baselines:
+
+- `quicktype`
+- `genson-cli`
+- `json-to-schema`
+- `schemax-cli`
+- `drivel`
+
 Secondary:
 
 - `gron`
@@ -644,6 +652,38 @@ Metrics:
 - exit behavior
 - parse-error behavior
 - command complexity
+
+## Pre-Benchmark Competitor Triage
+
+Before adding a full harness row, do a cheap viability pass:
+
+- activity: latest release and recent commit
+- implementation language and install path
+- JSONL / NDJSON support
+- multi-file or directory support
+- output contract: JSON Schema, tree, path facts, samples, query results, or
+  human text
+- whether the output can directly help an agent write the next query
+- obvious mismatch with the `jscan profile` wedge
+
+Snapshot from 2026-05-25:
+
+| Tool | Lane | Implementation | Initial read |
+| --- | --- | --- | --- |
+| `jsont` / `jt` | broad JSON/JSONL exploration and query | Go | Closest product collision. Must benchmark `schema`, `tree`, `stats`, and query paths before adding more query surface. |
+| `jsongrep` / `jg` | structural search/query | Rust | Keep as primary search/path baseline. It is not a schema profiler, but it is strong for field/path discovery and JSONL-aware search. |
+| `quicktype` | schema/type/code generation | TypeScript | Mature and broad. Benchmark as a JSON Schema inference baseline, not as a record-root/catalog competitor. |
+| `genson-cli` | JSON Schema inference | Rust | Relevant because it supports regular JSON and NDJSON. Benchmark schema quality and speed against `profile` shape discovery. |
+| `json-to-schema` | JSON Schema inference/validation | Python | Recent and featureful for Draft 2020-12 schemas. Likely a schema-authoring baseline, not a query-planning helper. |
+| `schemax-cli` | JSON Schema inference/diff/validate | Python | Recent beta with multi-file merging, diff, validation, and agent docs. Benchmark for skeleton usefulness. |
+| `drivel` | JSON Schema inference and synthetic data | Rust | Relevant secondary Rust baseline; include if install friction is low. |
+
+The first benchmark question for these tools should not be "who is fastest?"
+It should be:
+
+> Does the tool recover the record root, wrapper/container shape, dominant
+> fields, field coverage, scalar/array drift, and next-query context from messy
+> JSON/JSONL evidence?
 
 ## Name Check
 
