@@ -38,6 +38,9 @@ Implemented:
   `target/bench-results`. Benchmark rows include semantic answer validation for
   tasks with known answers, so exit-zero/no-output cases are not reported as
   successful measurements.
+- Repo-local workflow trial harness in [bench/trials.mjs](bench/trials.mjs),
+  comparing known-query `jq`, blind jq probes, `jscan profile` plus final query,
+  and raw `rg` where meaningful.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -204,6 +207,11 @@ First harness pass exists in [bench/README.md](bench/README.md). It currently
 captures wall time, output size, status, command string, output hash, and
 semantic label. It also validates expected answers for count-style tasks. Peak
 memory capture is still future work.
+
+Workflow trials now exist too. They are synthetic and should not be treated as
+final product evidence, but they provide a stable shape for downstream private
+trials: correct answer, total calls, total wall time, and total stdout bytes for
+complete investigative workflows.
 
 ## Phase 4: Performance And Large Inputs
 

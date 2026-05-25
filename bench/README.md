@@ -17,6 +17,12 @@ Run:
 node bench/run.mjs
 ```
 
+For full workflow trials:
+
+```sh
+node bench/trials.mjs
+```
+
 Useful options:
 
 ```sh
@@ -40,6 +46,10 @@ Outputs:
 - timestamped CSV and Markdown under `target/bench-results`
 - `target/bench-results/latest.csv`
 - `target/bench-results/latest.md`
+- deterministic workflow-trial fixtures under `target/trial-data`
+- timestamped workflow-trial CSV and Markdown under `target/trial-results`
+- `target/trial-results/latest.csv`
+- `target/trial-results/latest.md`
 
 Missing competitor tools are recorded as `status=missing` rather than failing
 the run. That lets local and downstream/private runs use the same harness even
@@ -73,3 +83,19 @@ For downstream private data, keep the same columns and add notes for:
 When adding a benchmark task, prefer adding an `expectedAnswer` and `answerFrom`
 extractor. Exit status alone is not enough; some tools can succeed while
 emitting no useful answer for a given input format.
+
+## Workflow Trials
+
+`bench/trials.mjs` measures complete paths to a correct answer, not just one
+command at a time. Each trial compares:
+
+- `oracle_jq`: a known-good final query, as a lower bound.
+- `blind_jq_probes`: small exploratory jq probes followed by the final query.
+- `profile_then_jq`: `jscan profile --budget 20kb --json` followed by the
+  final query.
+- `raw_rg`: raw occurrence count where a text baseline is meaningful.
+
+These trials are still synthetic, but they answer a better product question:
+whether the profile pass pays for itself by replacing enough discovery work.
+The private downstream trial should keep this shape and swap in representative
+redacted raw cases.

@@ -369,6 +369,41 @@ version:
   `rg --count-matches` for occurrence-count comparison and validates the
   expected answer `2000`.
 
+### Local Workflow Trial Smoke
+
+A second harness, `bench/trials.mjs`, measures complete workflows to a correct
+answer:
+
+- `oracle_jq`: the final known-good query only.
+- `blind_jq_probes`: exploratory jq shape probes plus the final query.
+- `profile_then_jq`: `jscan profile --budget 20kb --json` plus the final query.
+- `raw_rg`: raw text count where meaningful.
+
+Initial local smoke run, 3 measured runs with 1 warmup:
+
+| Trial | Workflow | Calls | Median | Stdout bytes |
+| --- | --- | ---: | ---: | ---: |
+| Splunk timeout count | `oracle_jq` | 1 | 29.64 ms | 5 |
+| Splunk timeout count | `blind_jq_probes` | 3 | 35.63 ms | 130 |
+| Splunk timeout count | `profile_then_jq` | 2 | 75.14 ms | 12,289 |
+| Splunk timeout count | `raw_rg` | 1 | 3.57 ms | 5 |
+| ZIA notification count | `oracle_jq` | 1 | 27.66 ms | 3 |
+| ZIA notification count | `blind_jq_probes` | 2 | 53.36 ms | 104 |
+| ZIA notification count | `profile_then_jq` | 2 | 59.77 ms | 10,573 |
+| Paged dev-domain count | `blind_jq_probes` | 3 | 36.85 ms | 111 |
+| Paged dev-domain count | `profile_then_jq` | 2 | 31.09 ms | 11,957 |
+| Bracket-key rare count | `blind_jq_probes` | 3 | 11.23 ms | 56 |
+| Bracket-key rare count | `profile_then_jq` | 2 | 7.35 ms | 7,064 |
+
+Read this cautiously:
+
+- `profile_then_jq` does not beat known-query `jq` or raw `rg`; it should not.
+- It only wins in synthetic trials where the profile replaces enough
+  exploratory probes, such as the paged wrapper and bracket-key wrapper.
+- The private/raw-data trial should decide whether those wins exist in real
+  agent workflows, and whether the extra profile bytes are worth the reduced
+  probing.
+
 ## Competitor Set
 
 Primary:
