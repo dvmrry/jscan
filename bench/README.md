@@ -35,22 +35,20 @@ The shell includes the project toolchain plus the main packaged competitors:
 
 - Rust: `cargo`, `rustc`, `rustfmt`, `clippy`
 - harness runtime: `node`, `python`, `uv`, `go`
-- search/query tools: `jq`, `jaq`, `rg`, `jg`
+- search/query tools: `jq`, `jaq`, `rg`, `jg`, `jt` / `jsont`
 - schema/flatten/table baselines: `quicktype`, `gron`, `fastgron`, `duckdb`
 - benchmark helpers: `hyperfine`, GNU `coreutils`
 
-Some newer competitor tools are not directly packaged in nixpkgs yet. Bootstrap
-them separately before full comparison runs:
+Some newer schema competitors are not directly packaged in nixpkgs yet.
+Bootstrap them separately before full comparison runs:
 
 ```sh
-go install github.com/okaris/jsont/cmd/jt@latest
 cargo install genson-cli drivel
 uv tool install json-to-schema
 uv tool install schemax-cli
 ```
 
-Those extras cover `jsont` / `jt`, `genson-cli`, `json-to-schema`,
-`schemax-cli`, and `drivel`.
+Those extras cover `genson-cli`, `json-to-schema`, `schemax-cli`, and `drivel`.
 
 Useful options:
 

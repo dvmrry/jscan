@@ -22,6 +22,21 @@
           python = pkgs.python3.withPackages (ps: [
             ps.genson
           ]);
+          jsont = pkgs.buildGoModule {
+            pname = "jsont";
+            version = "0-unstable-2026-05-16";
+            src = pkgs.fetchFromGitHub {
+              owner = "okaris";
+              repo = "jsont";
+              rev = "22b849be807f1054b9c0db5d2f231326654ad49a";
+              hash = "sha256-KD64HWh3AIFhQC11+RAmi5zhuFfS0A+biHQRVmHx9tw=";
+            };
+            vendorHash = null;
+            subPackages = [ "cmd/jt" ];
+            postInstall = ''
+              ln -s "$out/bin/jt" "$out/bin/jsont"
+            '';
+          };
         in
         {
           default = pkgs.mkShell {
@@ -41,6 +56,7 @@
               jaq
               ripgrep
               jsongrep
+              jsont
 
               quicktype
               gron
@@ -52,8 +68,8 @@
             ];
 
             shellHook = ''
-              echo "jscan dev shell: Rust, Node, jq/jaq/rg/jg, quicktype, gron/fastgron, duckdb"
-              echo "extra competitors still need bootstrap: jt/jsont, genson-cli, json-to-schema, schemax-cli, drivel"
+              echo "jscan dev shell: Rust, Node, jq/jaq/rg/jg, jt/jsont, quicktype, gron/fastgron, duckdb"
+              echo "extra competitors still need bootstrap: genson-cli, json-to-schema, schemax-cli, drivel"
             '';
           };
         }
