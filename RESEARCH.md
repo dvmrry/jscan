@@ -122,6 +122,58 @@ Important uncertainty:
 - Embedded JSON in raw log text may be useful, but only if it can be optional
   or cheap enough not to undermine speed.
 
+### Private Overlay Agent Report
+
+A data-adjacent agent reviewed private workflow data and recommended the product
+be **Scout/Locator first**, not a `jq` / `jaq` replacement.
+
+Observed local corpus, redacted and summarized:
+
+- 402 JSON-named files under data, cases, schemas, and infrastructure folders
+  after excluding workflow internals.
+- 46 `.json` files were actually NDJSON or multiple JSON documents, totaling
+  roughly 62,724 records.
+- Container shapes were mixed:
+  - ZIA snapshots: top-level arrays.
+  - ZPA snapshots: paged objects like `{totalPages,totalCount,list}`.
+  - Splunk exports: NDJSON rows shaped like `{preview,result}` even when named
+    `.json`.
+  - Some Splunk `_raw` fields contained parseable embedded JSON.
+
+Concrete workflow signals:
+
+- Some investigations had capped Splunk exports and repeated follow-up
+  aggregates because raw export shape and coverage mattered.
+- Some workflows loaded schema mappings only after a bad or placeholder query
+  path had already been attempted.
+- Distinguishing wildcard ZIA rows, projected ZPA rows, and raw ZPA connector
+  rows mattered in real cases.
+- Existing schema notes already encode hard-won field mappings, such as
+  differences between ZPA host/destination fields, ZIA web fields, and firewall
+  destination fields.
+
+Recommended practical wedge from that agent:
+
+```sh
+jscan profile evidence.json --budget 20kb --json
+jscan paths evidence.json --samples 2 --json
+jscan find --has result.Host --has result.ConnectionStatus --limit 20 --json
+```
+
+Key value statement:
+
+> The value is not "write a better filter than jq." It is: in one bounded pass,
+> tell the agent "this is NDJSON, records are under result, these are the
+> observed fields/types/optional fields, and here are source lines and small
+> samples." Then the agent can write correct jq, jaq, Splunk, KQL, or API
+> queries with fewer blind probes.
+
+Important caveat:
+
+- The private agent could not run the Rust prototype in its environment because
+  `cargo` was unavailable, so this validation was based on local data inspection
+  with existing tools rather than direct prototype execution.
+
 Candidate workflow to test:
 
 ```sh
@@ -295,8 +347,11 @@ Tasks reveal whether the real wedge is Scout, Engine, or hybrid.
 
 Immediate next step:
 
-1. Pick 8 to 10 seed tasks from the corpus above.
-2. For each task, write the best command in `jq`, `jaq`, `jsongrep`, and
+1. Treat the private overlay report as initial evidence for Scout/Locator first.
+2. Define what `profile --budget 20kb --json` must include.
+3. Pick 5 to 8 seed tasks from the corpus above that match the observed private
+   workflow shapes.
+4. For each task, write the best command in `jq`, `jaq`, `jsongrep`, and
    `jsont`.
-3. Mark each task Scout, Engine, Both, or Not ours.
-4. Only then decide whether `jsonq` is the right name.
+5. Mark each task Scout, Engine, Both, or Not ours.
+6. Only then decide whether `jsonq` is the right name.

@@ -60,6 +60,8 @@ These gates should be handled in order:
 ## Phase -1: Product Research
 
 - Fill in [RESEARCH.md](RESEARCH.md).
+- Incorporate the private overlay report: initial signal favors
+  Scout/Locator-first with a bounded `profile` command.
 - Pick 8 to 10 seed tasks.
 - Write best-known competitor commands for each task.
 - Classify each task as Scout, Engine, Both, or Not ours.
@@ -88,9 +90,13 @@ These gates should be handled in order:
 
 ## Phase 1: Agent Contract For `paths` And `shape`
 
+- Define `profile --budget <size> --json` as the bounded context command that
+  combines enough path, shape, sample, and source-layout information for an
+  agent to write the next query.
 - Publish JSON Schemas for:
   - `paths` report
   - `shape` report
+  - `profile` report, if `profile` is added before `find`
   - shared source/error/path/sample objects
 - Add examples for unknown JSON inspection:
   - one file
@@ -220,8 +226,10 @@ Measure first, then optimize.
 Start here:
 
 1. Open [RESEARCH.md](RESEARCH.md).
-2. Pick 8 to 10 seed tasks from the use case corpus.
-3. Write the best competitor command for each task.
-4. Classify each task as Scout, Engine, Both, or Not ours.
-5. Decide the wedge and name.
-6. Then return to Phase 0 foundation work.
+2. Read the private overlay agent report section.
+3. Define the contents of `profile --budget 20kb --json`.
+4. Pick 5 to 8 seed tasks matching the observed private workflow shapes.
+5. Write the best competitor command for each task.
+6. Classify each task as Scout, Engine, Both, or Not ours.
+7. Decide the wedge and name.
+8. Then return to Phase 0 foundation work.
