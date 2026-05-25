@@ -64,15 +64,16 @@ Initial option:
 --budget 20kb
 ```
 
-`--budget` is meaningful for `--json` output. v1 should use advisory top-N
-limits and deterministic section dropping rather than an exact byte-packing
-loop.
+`--budget` is meaningful for `--json` output. v1 should use deterministic
+top-N limits and section dropping, and estimate the pretty JSON bytes the CLI
+actually emits, including the trailing newline.
 
 Budgeting rules:
 
 - Deterministic output for the same input and options.
 - Always preserve high-priority structural metadata.
-- Trim lower-priority examples before trimming path/type summaries.
+- Preserve at least some representative samples and common values when
+  possible; trim broad lower-value tails before dropping all value evidence.
 - When trimming occurs, report what was omitted.
 - The JSON report should remain valid and schema-stable even when budgeted.
 
@@ -83,9 +84,9 @@ Priority order:
 3. record-root guesses
 4. top path/type facts
 5. optional/required field summaries
-6. type variations
+6. bounded samples/examples
 7. enum-like/common values
-8. bounded samples/examples
+8. type variations
 9. suggested next commands
 
 ## Report Contents
@@ -269,6 +270,10 @@ The first version can emit deterministic next-tool hints:
 - `jg` / `jsongrep` for field-presence or path-style discovery.
 - this tool's `paths` / `shape` commands for deeper local reconnaissance.
 
+Hints should use detected record roots when possible. For example, Splunk row
+wrappers should suggest filters rooted under `.result`, and paged API wrappers
+should suggest filters rooted under `.list[]`.
+
 Hints should include:
 
 - tool name
@@ -338,9 +343,9 @@ Build `profile` from existing machinery first:
    - record counts
 5. Add container-shape detection from that per-source summary.
 6. Add record-root guessing.
-7. Add advisory budgeted report assembly using top-N limits and section drops.
-8. Add deterministic next-tool and next-command suggestions for existing
-   commands only.
+7. Add budgeted report assembly using top-N limits and section drops.
+8. Add next-tool and next-command suggestions for existing commands only, using
+   detected record roots where practical.
 
 Avoid adding a query language while implementing `profile`.
 

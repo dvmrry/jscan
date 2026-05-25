@@ -27,8 +27,12 @@ Implemented:
 - Bounded scalar sample previews with source line metadata
 - Directory scans default to JSON-like files, with `--all-files` escape hatch
 - Linear shape inference using a parent-child path index
+- `profile --budget <size> --json` with container/record-root detection,
+  rooted next-tool hints, token-aware field signals, and emitted-byte budget
+  accounting
 - Regression tests for malformed input, directory scans, truncation, samples,
-  strict mode, stdin-style JSONL, and array shapes
+  strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
+  budgeting, token-aware keywords, and rooted next-tool hints
 
 Verification:
 
@@ -228,13 +232,23 @@ Measure first, then optimize.
 
 Start here:
 
-1. Open [DOWNSTREAM_REVIEW.md](DOWNSTREAM_REVIEW.md).
-2. Have the private-data agent run `jscan profile <input> --budget 20kb --json`
-   on representative evidence.
-3. Use that feedback to decide whether to:
+1. Open the downstream profile findings in [RESEARCH.md](RESEARCH.md).
+2. Rebuild the branch and have the private-data agent re-run:
+
+   ```sh
+   target/release/jscan profile <input> --budget 20kb --json
+   ```
+
+3. Confirm the prior review issues are resolved:
+   - `.json` NDJSON fallback reports `format: jsonl`
+   - actual emitted JSON stays within the 20 KB budget on representative files
+   - samples and common values are still present when possible
+   - `description` / `apiProtectionEnabled` are not tagged as `keyword:ip`
+   - next-tool hints use `$.result`, `$.list[]`, or `$[]`
+4. Use that feedback to decide whether to:
    - improve `profile`
    - add focused grep/find
    - improve benchmarks
    - pause/rethink
-4. Then return to [RESEARCH.md](RESEARCH.md) and [PROFILE.md](PROFILE.md) as
+5. Then return to [RESEARCH.md](RESEARCH.md) and [PROFILE.md](PROFILE.md) as
    needed.

@@ -215,6 +215,47 @@ Product implication:
 > vs. NDJSON, expose paths/types/samples/source lines, and tell the agent which
 > of `rg`, `jq`, `jaq`, or `jg` is the right next tool.
 
+### Downstream Profile Review
+
+The private-data reviewer ran `jscan profile --budget 20kb --json` against
+representative evidence and confirmed the concept is useful, but found several
+profile-contract problems to fix before adding `find`:
+
+- `.json` files that auto-fallback to NDJSON were parsed correctly but reported
+  as `format: auto`, which hid the `jsonl_records` container.
+- `budget.estimated_bytes` used compact JSON while `--json` emitted pretty JSON,
+  so actual output could exceed the requested budget.
+- The budget reducer dropped all samples and common values before trimming lower
+  value report tails, leaving agents with paths but no local value hints.
+- Keyword detection used substring matches, so fields like `description` could
+  be tagged as `keyword:ip`.
+- `next_tools` was static and did not use detected record roots such as
+  `$.result`, `$.list[]`, or `$[]`.
+
+The same review returned three concrete private examples:
+
+- Splunk `{preview,result}` NDJSON in a `.json` file: profile found 10k records
+  and `record_roots: $.result`, replacing format/root discovery probes.
+- ZPA paged wrapper: profile found `paged_list_wrapper`, `record_roots:
+  $.list[]`, and `domainNames[]`, replacing a field-selection probe.
+- ZIA top-level array: profile found `root_array` and useful arrays such as
+  `urlCategories[]` and `requestMethods[]`, though value hints were missing
+  before the budget fix.
+
+Top missing facts from that review:
+
+- effective parsed format after auto fallback
+- actual emitted-byte size under the requested budget
+- bounded low-cardinality values or redacted samples
+- omitted-count metadata for capped facts
+- record-root-specific next commands
+
+Recommendation from the review:
+
+> Improve `profile` first. The concept is real and useful for agentic JSON work,
+> but fix format truthfulness, budget accounting, value preservation, and
+> adaptive guidance before adding focused grep/find.
+
 Candidate workflow to test:
 
 ```sh

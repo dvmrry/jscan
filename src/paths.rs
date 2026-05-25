@@ -168,6 +168,7 @@ fn process_auto_input(
 
     match serde_json::from_str::<Value>(&contents) {
         Ok(value) => {
+            source_state.set_format(InputFormat::Json);
             source_state.record(&value);
             visit_value(state, source, 1, Some(1), &mut Vec::new(), &value);
         }
@@ -182,6 +183,7 @@ fn process_auto_input(
                 return;
             }
 
+            source_state.set_format(InputFormat::Jsonl);
             apply_jsonl_buffer(state, source_state, source, buffered);
         }
         Err(error) => {
@@ -444,6 +446,10 @@ impl SourceState {
             top_level_array_items: 0,
             array_fields: BTreeMap::new(),
         }
+    }
+
+    fn set_format(&mut self, format: InputFormat) {
+        self.format = format;
     }
 
     fn record(&mut self, value: &Value) {

@@ -2,7 +2,7 @@ use std::fs;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use tempfile::tempdir;
 
 #[test]
@@ -204,6 +204,11 @@ fn profile_detects_splunk_result_wrapper() {
         "$.result.ConnectionStatus",
     );
     assert_json_array_contains(&output["next_tools"], "tool", "rg");
+    assert_json_array_contains(
+        &output["next_tools"],
+        "command",
+        "jaq -c '.result | select(.ConnectionStatus? != null)' <input>",
+    );
 }
 
 #[test]
@@ -226,6 +231,17 @@ fn profile_detects_paged_list_wrapper() {
         "display_path",
         "$.list[].domainNames[]",
     );
+    assert!(
+        output["next_tools"]
+            .as_array()
+            .expect("next_tools")
+            .iter()
+            .any(|tool| tool["command"]
+                .as_str()
+                .expect("command")
+                .contains(".list[]")),
+        "expected a next-tool command to use .list[]"
+    );
 }
 
 #[test]
@@ -247,7 +263,7 @@ fn profile_detects_top_level_array() {
 }
 
 #[test]
-fn profile_budget_is_advisory_and_reports_omissions() {
+fn profile_budget_reports_omissions_when_trimmed() {
     let output = command_json(
         &[
             "profile",
@@ -269,15 +285,142 @@ fn profile_budget_is_advisory_and_reports_omissions() {
     );
 }
 
+#[test]
+fn profile_reports_jsonl_after_auto_fallback_for_json_file() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("splunk-export.json");
+    fs::write(
+        &input,
+        concat!(
+            "{\"preview\":false,\"result\":{\"ConnectionStatus\":\"OPEN\"}}\n",
+            "{\"preview\":false,\"result\":{\"ConnectionStatus\":\"CLOSED\"}}\n"
+        ),
+    )
+    .expect("write fixture");
+
+    let output = command_json(
+        &[
+            "profile",
+            input.to_str().expect("utf-8 path"),
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+
+    assert_eq!(output["sources"][0]["format"], "jsonl");
+    assert_json_array_contains(&output["containers"], "kind", "jsonl_records");
+    assert_json_array_contains(&output["record_roots"], "display_path", "$.result");
+}
+
+#[test]
+fn profile_budget_matches_emitted_json_and_preserves_evidence() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("wide.jsonl");
+    let mut lines = Vec::new();
+    for record_index in 0..12 {
+        let mut result = Map::new();
+        result.insert(
+            "ConnectionStatus".to_string(),
+            json!(if record_index % 2 == 0 {
+                "OPEN"
+            } else {
+                "CLOSED"
+            }),
+        );
+        result.insert("Host".to_string(), json!(format!("host-{record_index}")));
+        result.insert(
+            "sourceIp".to_string(),
+            json!(format!("192.0.2.{record_index}")),
+        );
+        result.insert(
+            "description".to_string(),
+            json!(format!("record description {record_index}")),
+        );
+        result.insert(
+            "domainNames".to_string(),
+            json!(["dev.azure.com", "example.test"]),
+        );
+        for field_index in 0..70 {
+            result.insert(
+                format!("field{field_index}"),
+                json!(format!("value-{record_index}-{field_index}")),
+            );
+        }
+
+        lines.push(json!({"preview": false, "result": Value::Object(result)}).to_string());
+    }
+    fs::write(&input, lines.join("\n")).expect("write fixture");
+
+    let stdout = command_stdout(
+        &[
+            "profile",
+            input.to_str().expect("utf-8 path"),
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+    let output: Value = serde_json::from_slice(&stdout).expect("json output");
+
+    assert!(
+        stdout.len() <= 20 * 1024,
+        "profile exceeded budget: {} bytes",
+        stdout.len()
+    );
+    assert_eq!(
+        output["budget"]["estimated_bytes"]
+            .as_u64()
+            .expect("estimated bytes"),
+        stdout.len() as u64
+    );
+    assert!(
+        !output["samples"].as_array().expect("samples").is_empty(),
+        "budgeting should preserve representative samples at 20kb"
+    );
+    assert!(
+        !output["common_values"]
+            .as_array()
+            .expect("common_values")
+            .is_empty(),
+        "budgeting should preserve representative common values at 20kb"
+    );
+}
+
+#[test]
+fn profile_keyword_signals_are_token_aware() {
+    let output = command_json(
+        &["profile", "--json", "--budget", "20kb"],
+        Some(
+            r#"{"description":"letters that used to trigger ip","apiProtectionEnabled":true,"sourceIp":"192.0.2.1"}"#,
+        ),
+    );
+
+    let description = find_path_fact(&output, "$.description");
+    let api_protection = find_path_fact(&output, "$.apiProtectionEnabled");
+    let source_ip = find_path_fact(&output, "$.sourceIp");
+
+    assert!(!json_strings(&description["signals"]).contains(&"keyword:ip".to_string()));
+    assert!(!json_strings(&api_protection["signals"]).contains(&"keyword:ip".to_string()));
+    assert!(json_strings(&source_ip["signals"]).contains(&"keyword:source".to_string()));
+    assert!(json_strings(&source_ip["signals"]).contains(&"keyword:ip".to_string()));
+}
+
 fn command_json(args: &[&str], stdin: Option<&str>) -> Value {
+    let output = command_stdout(args, stdin);
+    serde_json::from_slice(&output).expect("json output")
+}
+
+fn command_stdout(args: &[&str], stdin: Option<&str>) -> Vec<u8> {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
     cmd.args(args);
     if let Some(stdin) = stdin {
         cmd.write_stdin(stdin);
     }
 
-    let output = cmd.assert().success().get_output().stdout.clone();
-    serde_json::from_slice(&output).expect("json output")
+    cmd.assert().success().get_output().stdout.clone()
 }
 
 fn assert_json_array_contains(array: &Value, key: &str, expected: &str) {
@@ -286,4 +429,23 @@ fn assert_json_array_contains(array: &Value, key: &str, expected: &str) {
         values.iter().any(|value| value[key] == expected),
         "expected array to contain {key}={expected}, got {values:#?}"
     );
+}
+
+fn find_path_fact(output: &Value, path: &str) -> Value {
+    output["path_facts"]
+        .as_array()
+        .expect("path_facts")
+        .iter()
+        .find(|entry| entry["display_path"] == path)
+        .unwrap_or_else(|| panic!("missing path fact {path}"))
+        .clone()
+}
+
+fn json_strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|item| item.as_str().expect("string").to_string())
+        .collect()
 }

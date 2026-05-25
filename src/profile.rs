@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -175,8 +176,9 @@ pub fn build_profile(
     );
     let shape_facts = ranked_shape_facts(shape_report, DEFAULT_SHAPE_LIMIT);
     let type_variations = type_variations(&path_report.paths, DEFAULT_VARIATION_LIMIT);
-    let common_values = common_values(&path_report.paths, DEFAULT_COMMON_VALUE_LIMIT);
+    let common_values = common_values(&path_report.paths, &path_facts, DEFAULT_COMMON_VALUE_LIMIT);
     let samples = profile_samples(&path_facts, &path_report.paths, DEFAULT_SAMPLE_LIMIT);
+    let next_tools = next_tools(&record_roots, &path_facts);
 
     let mut report = ProfileReport {
         schema: REPORT_SCHEMA,
@@ -197,7 +199,7 @@ pub fn build_profile(
         type_variations,
         common_values,
         samples,
-        next_tools: next_tools(),
+        next_tools,
         next_commands: next_commands(),
         errors: path_report.errors.clone(),
     };
@@ -470,17 +472,39 @@ fn type_variations(paths: &[PathEntry], limit: usize) -> Vec<TypeVariationFact> 
         .collect()
 }
 
-fn common_values(paths: &[PathEntry], limit: usize) -> Vec<CommonValueFact> {
-    paths
+fn common_values(
+    paths: &[PathEntry],
+    path_facts: &[PathFact],
+    limit: usize,
+) -> Vec<CommonValueFact> {
+    let fact_order = path_facts
         .iter()
+        .enumerate()
+        .map(|(index, fact)| (fact.pointer_template.as_str(), index))
+        .collect::<BTreeMap<_, _>>();
+    let mut entries = paths
+        .iter()
+        .filter(|entry| entry.display_path != "$")
+        .filter(|entry| has_scalar_type(&entry.types))
         .filter(|entry| !entry.samples.is_empty())
-        .filter(|entry| {
-            entry.types.contains_key("string")
-                || entry.types.contains_key("boolean")
-                || entry.types.contains_key("integer")
+        .map(|entry| {
+            let signals = path_signals(entry);
+            let ranked_bonus = fact_order
+                .get(entry.pointer_template.as_str())
+                .map(|index| 5_000usize.saturating_sub(*index))
+                .unwrap_or(0);
+            (path_score(entry, &signals) + ranked_bonus, entry)
         })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.display_path.cmp(&b.1.display_path))
+    });
+
+    entries
+        .into_iter()
         .take(limit)
-        .map(|entry| CommonValueFact {
+        .map(|(_, entry)| CommonValueFact {
             display_path: entry.display_path.clone(),
             pointer_template: entry.pointer_template.clone(),
             values: entry
@@ -530,47 +554,190 @@ fn apply_budget(report: &mut ProfileReport, budget_bytes: usize) -> Result<()> {
         return Ok(());
     }
 
-    if !report.samples.is_empty() {
-        report.samples.clear();
-        report.budget.omitted.push("samples".to_string());
-    }
-    if !report.common_values.is_empty() {
-        report.common_values.clear();
-        report.budget.omitted.push("common_values".to_string());
-    }
-    refresh_estimate(report)?;
-    if report.budget.estimated_bytes <= budget_bytes {
-        report.budget.truncated = true;
-        return Ok(());
+    report.budget.truncated = true;
+    for step in BUDGET_STEPS {
+        apply_budget_step(report, *step);
+        refresh_estimate(report)?;
+        if report.budget.estimated_bytes <= budget_bytes {
+            return Ok(());
+        }
     }
 
-    truncate_with_note(
-        &mut report.path_facts,
-        15,
-        &mut report.budget.omitted,
-        "path_facts",
-    );
-    truncate_with_note(
-        &mut report.shape_facts,
-        15,
-        &mut report.budget.omitted,
-        "shape_facts",
-    );
-    truncate_with_note(
-        &mut report.type_variations,
-        10,
-        &mut report.budget.omitted,
-        "type_variations",
-    );
-    report.budget.truncated = true;
-    refresh_estimate(report)?;
     Ok(())
 }
 
 fn refresh_estimate(report: &mut ProfileReport) -> Result<()> {
-    report.budget.estimated_bytes = 0;
-    report.budget.estimated_bytes = serde_json::to_vec(report)?.len();
+    let mut estimate = 0;
+    for _ in 0..8 {
+        report.budget.estimated_bytes = estimate;
+        let next = serde_json::to_vec_pretty(report)?.len() + 1;
+        if next == estimate {
+            return Ok(());
+        }
+        estimate = next;
+    }
+
+    report.budget.estimated_bytes = estimate;
     Ok(())
+}
+
+#[derive(Copy, Clone)]
+enum BudgetStep {
+    PathFacts(usize),
+    ShapeFacts(usize),
+    TypeVariations(usize),
+    CommonValues(usize),
+    CommonValueItems(usize),
+    Samples(usize),
+    SourceFields(usize),
+    SourceArrays(usize),
+    ClearTypeVariationSamples,
+    Errors(usize),
+    NextCommands(usize),
+    NextTools(usize),
+}
+
+const BUDGET_STEPS: &[BudgetStep] = &[
+    BudgetStep::PathFacts(24),
+    BudgetStep::ShapeFacts(24),
+    BudgetStep::TypeVariations(12),
+    BudgetStep::CommonValues(16),
+    BudgetStep::Samples(16),
+    BudgetStep::SourceFields(16),
+    BudgetStep::PathFacts(18),
+    BudgetStep::ShapeFacts(14),
+    BudgetStep::TypeVariations(8),
+    BudgetStep::CommonValues(10),
+    BudgetStep::Samples(10),
+    BudgetStep::CommonValueItems(2),
+    BudgetStep::ClearTypeVariationSamples,
+    BudgetStep::PathFacts(14),
+    BudgetStep::ShapeFacts(10),
+    BudgetStep::TypeVariations(5),
+    BudgetStep::CommonValues(8),
+    BudgetStep::Samples(8),
+    BudgetStep::SourceFields(10),
+    BudgetStep::SourceArrays(6),
+    BudgetStep::PathFacts(10),
+    BudgetStep::ShapeFacts(6),
+    BudgetStep::TypeVariations(3),
+    BudgetStep::CommonValues(4),
+    BudgetStep::Samples(4),
+    BudgetStep::NextCommands(1),
+    BudgetStep::PathFacts(6),
+    BudgetStep::ShapeFacts(4),
+    BudgetStep::CommonValues(2),
+    BudgetStep::Samples(2),
+    BudgetStep::TypeVariations(1),
+    BudgetStep::Errors(5),
+    BudgetStep::NextCommands(0),
+    BudgetStep::NextTools(2),
+    BudgetStep::CommonValues(0),
+    BudgetStep::Samples(0),
+    BudgetStep::TypeVariations(0),
+    BudgetStep::ShapeFacts(2),
+    BudgetStep::PathFacts(3),
+];
+
+fn apply_budget_step(report: &mut ProfileReport, step: BudgetStep) {
+    match step {
+        BudgetStep::PathFacts(max_len) => truncate_with_note(
+            &mut report.path_facts,
+            max_len,
+            &mut report.budget.omitted,
+            "path_facts_tail",
+        ),
+        BudgetStep::ShapeFacts(max_len) => truncate_with_note(
+            &mut report.shape_facts,
+            max_len,
+            &mut report.budget.omitted,
+            "shape_facts_tail",
+        ),
+        BudgetStep::TypeVariations(max_len) => truncate_with_note(
+            &mut report.type_variations,
+            max_len,
+            &mut report.budget.omitted,
+            "type_variations_tail",
+        ),
+        BudgetStep::CommonValues(max_len) => truncate_with_note(
+            &mut report.common_values,
+            max_len,
+            &mut report.budget.omitted,
+            "common_values_tail",
+        ),
+        BudgetStep::CommonValueItems(max_len) => {
+            let mut changed = false;
+            for fact in &mut report.common_values {
+                if fact.values.len() > max_len {
+                    fact.values.truncate(max_len);
+                    changed = true;
+                }
+            }
+            if changed {
+                push_omitted(&mut report.budget.omitted, "common_value_items_tail");
+            }
+        }
+        BudgetStep::Samples(max_len) => truncate_with_note(
+            &mut report.samples,
+            max_len,
+            &mut report.budget.omitted,
+            "samples_tail",
+        ),
+        BudgetStep::SourceFields(max_len) => {
+            let mut changed = false;
+            for source in &mut report.sources {
+                if source.top_level_fields.len() > max_len {
+                    source.top_level_fields.truncate(max_len);
+                    changed = true;
+                }
+            }
+            if changed {
+                push_omitted(&mut report.budget.omitted, "source_field_tail");
+            }
+        }
+        BudgetStep::SourceArrays(max_len) => {
+            let mut changed = false;
+            for source in &mut report.sources {
+                if source.array_fields.len() > max_len {
+                    source.array_fields.truncate(max_len);
+                    changed = true;
+                }
+            }
+            if changed {
+                push_omitted(&mut report.budget.omitted, "source_array_tail");
+            }
+        }
+        BudgetStep::ClearTypeVariationSamples => {
+            let mut changed = false;
+            for variation in &mut report.type_variations {
+                if !variation.samples.is_empty() {
+                    variation.samples.clear();
+                    changed = true;
+                }
+            }
+            if changed {
+                push_omitted(&mut report.budget.omitted, "type_variation_samples");
+            }
+        }
+        BudgetStep::Errors(max_len) => truncate_with_note(
+            &mut report.errors,
+            max_len,
+            &mut report.budget.omitted,
+            "errors_tail",
+        ),
+        BudgetStep::NextCommands(max_len) => truncate_with_note(
+            &mut report.next_commands,
+            max_len,
+            &mut report.budget.omitted,
+            "next_commands_tail",
+        ),
+        BudgetStep::NextTools(max_len) => truncate_with_note(
+            &mut report.next_tools,
+            max_len,
+            &mut report.budget.omitted,
+            "next_tools_tail",
+        ),
+    }
 }
 
 fn truncate_with_note<T>(
@@ -581,35 +748,56 @@ fn truncate_with_note<T>(
 ) {
     if values.len() > max_len {
         values.truncate(max_len);
-        omitted.push(format!("{label}_tail"));
+        push_omitted(omitted, label);
     }
 }
 
-fn next_tools() -> Vec<NextToolHint> {
+fn push_omitted(omitted: &mut Vec<String>, label: &str) {
+    if !omitted.iter().any(|item| item == label) {
+        omitted.push(label.to_string());
+    }
+}
+
+fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<NextToolHint> {
+    let root = record_roots.first();
+    let candidate = root.and_then(|root| next_path_for_root(root, path_facts));
+    let root_label = root.map(|root| root.display_path.as_str()).unwrap_or("$");
+    let structural_filter = root
+        .map(|root| structural_filter(root, candidate))
+        .unwrap_or_else(|| "<filter>".to_string());
+    let jaq_command = format!("jaq -c {} <input>", shell_quote(&structural_filter));
+    let jq_command = format!("jq -c {} <input>", shell_quote(&structural_filter));
+    let jg_pattern = candidate
+        .map(|fact| fact.display_path.as_str())
+        .unwrap_or("<path-pattern>");
+
     vec![
         NextToolHint {
             tool: "rg".to_string(),
-            reason: "fast raw smoke test for rare strings".to_string(),
+            reason: "fast raw smoke test for rare strings before structural filtering".to_string(),
             caveat: "counts text occurrences, not matching JSON objects".to_string(),
             command: "rg '<term>' <input>".to_string(),
         },
         NextToolHint {
             tool: "jaq".to_string(),
-            reason: "fast JSONL-aware structural filtering and aggregation".to_string(),
+            reason: format!("fast JSON-aware filtering from detected record root {root_label}"),
             caveat: "requires a known filter and JSON-aware semantics".to_string(),
-            command: "jaq -c '<filter>' <input>".to_string(),
+            command: jaq_command,
         },
         NextToolHint {
             tool: "jq".to_string(),
-            reason: "widely available JSON transformation and aggregation".to_string(),
+            reason: format!(
+                "widely available JSON filtering from detected record root {root_label}"
+            ),
             caveat: "can be slower for repeated broad probes".to_string(),
-            command: "jq -c '<filter>' <input>".to_string(),
+            command: jq_command,
         },
         NextToolHint {
             tool: "jg".to_string(),
-            reason: "fast JSON-aware field or path presence checks".to_string(),
+            reason: "fast JSON-aware field or path presence checks using observed paths"
+                .to_string(),
             caveat: "does not replace jq/jaq for value predicates and aggregation".to_string(),
-            command: "jg '<path-pattern>' <input>".to_string(),
+            command: format!("jg {} <input>", shell_quote(jg_pattern)),
         },
     ]
 }
@@ -697,38 +885,242 @@ fn path_signals(entry: &PathEntry) -> Vec<String> {
 
 fn field_signals(path: &str, mixed_types: bool) -> Vec<String> {
     let mut signals = Vec::new();
-    let lower = path.to_ascii_lowercase();
     if mixed_types {
         signals.push("mixed_types".to_string());
     }
-    for keyword in [
-        "time",
-        "timestamp",
-        "user",
-        "host",
-        "device",
-        "action",
-        "status",
-        "error",
-        "policy",
-        "url",
-        "domain",
-        "ip",
-        "source",
-        "destination",
-        "connector",
-        "tunnel",
-        "app",
-    ] {
-        if lower.contains(keyword) {
+
+    let mut seen_keywords = BTreeSet::new();
+    for token in path_tokens(path) {
+        if let Some(keyword) = canonical_keyword(&token)
+            && seen_keywords.insert(keyword)
+        {
             signals.push(format!("keyword:{keyword}"));
         }
     }
     signals
 }
 
+fn has_scalar_type(types: &BTreeMap<String, usize>) -> bool {
+    ["string", "boolean", "integer", "number", "null"]
+        .iter()
+        .any(|kind| types.contains_key(*kind))
+}
+
+fn next_path_for_root<'a>(
+    root: &RecordRootFact,
+    path_facts: &'a [PathFact],
+) -> Option<&'a PathFact> {
+    path_facts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, fact)| {
+            let segments =
+                relative_pointer_segments(&root.pointer_template, &fact.pointer_template)?;
+            if !has_scalar_type(&fact.types) || segments.is_empty() {
+                return None;
+            }
+
+            let array_item_leaf = matches!(segments.last().map(String::as_str), Some("*"));
+            Some((array_item_leaf, index, fact))
+        })
+        .min_by_key(|(array_item_leaf, index, _)| (*array_item_leaf, *index))
+        .map(|(_, _, fact)| fact)
+}
+
+fn structural_filter(root: &RecordRootFact, candidate: Option<&PathFact>) -> String {
+    let root_expr = jq_expr_from_pointer(&root.pointer_template);
+    let Some(candidate) = candidate else {
+        return root_expr;
+    };
+    let Some(relative_segments) =
+        relative_pointer_segments(&root.pointer_template, &candidate.pointer_template)
+    else {
+        return root_expr;
+    };
+    let Some(predicate) = presence_predicate(&relative_segments) else {
+        return root_expr;
+    };
+
+    format!("{root_expr} | select({predicate})")
+}
+
+fn presence_predicate(segments: &[String]) -> Option<String> {
+    let mut segments = segments.to_vec();
+    while matches!(segments.last().map(String::as_str), Some("*")) {
+        segments.pop();
+    }
+    if segments.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "{} != null",
+        jq_expr_from_segments(&segments, true)
+    ))
+}
+
+fn jq_expr_from_pointer(pointer: &str) -> String {
+    jq_expr_from_segments(&pointer_segments(pointer), false)
+}
+
+fn jq_expr_from_segments(segments: &[String], optional_last: bool) -> String {
+    if segments.is_empty() {
+        return ".".to_string();
+    }
+
+    let mut output = String::new();
+    for (index, segment) in segments.iter().enumerate() {
+        let is_last = index + 1 == segments.len();
+        let optional = optional_last && is_last;
+        if segment == "*" {
+            output.push_str(if optional { "[]?" } else { "[]" });
+        } else if is_jq_identifier(segment) {
+            output.push('.');
+            output.push_str(segment);
+            if optional {
+                output.push('?');
+            }
+        } else {
+            output.push('[');
+            output.push_str(&serde_json::to_string(segment).expect("serializing jq key"));
+            output.push(']');
+            if optional {
+                output.push('?');
+            }
+        }
+    }
+    output
+}
+
+fn relative_pointer_segments(root_pointer: &str, pointer: &str) -> Option<Vec<String>> {
+    let root_segments = pointer_segments(root_pointer);
+    let path_segments = pointer_segments(pointer);
+    if path_segments.len() < root_segments.len()
+        || !path_segments
+            .iter()
+            .zip(root_segments.iter())
+            .all(|(path, root)| path == root)
+    {
+        return None;
+    }
+
+    Some(path_segments[root_segments.len()..].to_vec())
+}
+
+fn pointer_segments(pointer: &str) -> Vec<String> {
+    if pointer.is_empty() {
+        return Vec::new();
+    }
+
+    pointer
+        .trim_start_matches('/')
+        .split('/')
+        .map(unescape_pointer)
+        .collect()
+}
+
+fn unescape_pointer(segment: &str) -> String {
+    segment.replace("~1", "/").replace("~0", "~")
+}
+
+fn is_jq_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn path_tokens(path: &str) -> Vec<String> {
+    let mut groups = Vec::new();
+    let mut current = String::new();
+    for ch in path.chars() {
+        if ch.is_ascii_alphanumeric() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            groups.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        groups.push(current);
+    }
+
+    groups
+        .into_iter()
+        .flat_map(|group| split_identifier(&group))
+        .collect()
+}
+
+fn split_identifier(value: &str) -> Vec<String> {
+    let chars = value.chars().collect::<Vec<_>>();
+    if chars.is_empty() {
+        return Vec::new();
+    }
+
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    for index in 1..chars.len() {
+        let previous = chars[index - 1];
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+        let boundary = (current.is_ascii_uppercase()
+            && (previous.is_ascii_lowercase() || previous.is_ascii_digit()))
+            || (current.is_ascii_uppercase()
+                && previous.is_ascii_uppercase()
+                && next.is_some_and(|ch| ch.is_ascii_lowercase()))
+            || (current.is_ascii_digit() != previous.is_ascii_digit());
+
+        if boundary {
+            tokens.push(
+                chars[start..index]
+                    .iter()
+                    .collect::<String>()
+                    .to_ascii_lowercase(),
+            );
+            start = index;
+        }
+    }
+    tokens.push(
+        chars[start..]
+            .iter()
+            .collect::<String>()
+            .to_ascii_lowercase(),
+    );
+    tokens
+}
+
+fn canonical_keyword(token: &str) -> Option<&'static str> {
+    match token {
+        "time" => Some("time"),
+        "timestamp" => Some("timestamp"),
+        "user" | "username" => Some("user"),
+        "host" | "hostname" => Some("host"),
+        "device" => Some("device"),
+        "action" => Some("action"),
+        "status" => Some("status"),
+        "error" => Some("error"),
+        "policy" => Some("policy"),
+        "url" => Some("url"),
+        "domain" => Some("domain"),
+        "ip" => Some("ip"),
+        "source" | "src" => Some("source"),
+        "destination" | "dest" | "dst" => Some("destination"),
+        "connector" => Some("connector"),
+        "tunnel" => Some("tunnel"),
+        "app" | "application" => Some("app"),
+        _ => None,
+    }
+}
+
 fn under_record_root(pointer: &str, roots: &[&str]) -> bool {
-    roots.iter().any(|root| pointer.starts_with(*root))
+    roots
+        .iter()
+        .any(|root| relative_pointer_segments(root, pointer).is_some())
 }
 
 fn display_key(key: &str) -> String {
