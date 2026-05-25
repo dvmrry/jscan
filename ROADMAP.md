@@ -13,6 +13,12 @@ shapes, samples, and evidence. It should not grow into a general projection,
 calculation, or reshaping language. When users need transformation, the answer
 should be to pipe the located evidence into `jq` or another transformer.
 
+The current product read is narrower and stronger than "faster jq": `jscan` is
+a schema-skeleton and query-planning helper for unknown or ugly JSON evidence.
+It can recover the mechanical schema contract in one bounded pass. It should not
+claim to be a semantic schema author, domain mapper, or investigation reasoning
+engine.
+
 ## Current State
 
 Implemented:
@@ -46,6 +52,10 @@ Implemented:
   Splunk `{preview,result}` JSONL exports. Directory-level profile is too mixed,
   suggesting a future `catalog` / `classify` command that groups files by
   inferred schema kind.
+- Known Splunk/ZPA control signal: `profile` recovered record root, wrapper
+  format, dominant fields, field types, and scalar/array drift from messy
+  exports, but did not replace curated domain mapping. This supports the
+  schema-skeleton/query-planning wedge and reinforces the semantic boundary.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -88,10 +98,8 @@ These gates should be handled in order:
 - Pick 8 to 10 seed tasks.
 - Write best-known competitor commands for each task.
 - Classify each task as Scout, Engine, Both, or Not ours.
-- Decide whether the first wedge is:
-  - agent-friendly reconnaissance
-  - fast structural query
-  - hybrid with discovery first and query delivery second
+- Treat the first wedge as agent-friendly reconnaissance: a bounded
+  schema-skeleton/query-planning pass before query delivery.
 - Decide whether `jsonq` fits the chosen wedge.
 
 ## Phase 0: Finish Foundation

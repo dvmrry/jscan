@@ -253,6 +253,39 @@ Observed private grouping examples:
 - 6 files -> Terraform plan/state JSON
 - 2 files -> HAR browser capture
 
+### Known Splunk/ZPA Control Read
+
+A downstream read reframed the private Splunk/ZPA exercise as a control case.
+The important question was not "did `jscan` discover brand-new Splunk facts?"
+It was:
+
+> Can this recover enough of a known messy schema to help an agent faster than
+> random `jq` fishing?
+
+The answer was yes for mechanical structure:
+
+| Test question | Result |
+| --- | --- |
+| Can it identify the real record shape? | Yes: JSONL, Splunk preview/result wrapper, record root `$.result`. |
+| Can it surface high-value fields without prior naming? | Yes: status, connector, ZEN, host, policy, timings, and byte counters. |
+| Can it help build a schema skeleton? | Yes: paths, types, counts, and coverage are structurally useful. |
+| Can it replace the old domain mapping? | No: it does not infer semantics, canonical ZPA meaning, timing interpretation, or investigation caveats. |
+| Can it point to the right next tool/query? | Mostly yes: use `profile` for shape, `rg` for literals, `jq`/`jaq` for transforms, and normalize scalar-or-array fields. |
+
+The conclusion:
+
+> Against a known Splunk/ZPA schema, `jscan profile` recovered the record root,
+> wrapper format, dominant fields, field types, and aggregation-induced
+> scalar/array drift. It did not replace domain mapping, but it reduced the
+> unknown-JSON discovery step to one bounded pass. That makes it useful for
+> agentic flows as a schema-skeleton and query-planning helper, not as a
+> semantic schema author.
+
+This is a useful boundary. A control case with a good hand-mapped semantic
+schema should not expect `jscan` to add domain meaning. It should expect `jscan`
+to match the known structural contract, expose export-shape quirks, and stop
+before pretending to know investigation semantics.
+
 ### Initial Private Benchmark Report
 
 A second data-adjacent pass ran a small local benchmark against representative
