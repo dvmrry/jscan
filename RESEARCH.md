@@ -322,6 +322,37 @@ Measurement should include not only raw speed, but also:
   - `jq`/`jaq` for structural aggregation/value predicates
   - `jg` for path/field-presence discovery
 
+### Local Benchmark Harness Smoke
+
+A repo-local CLI harness now lives at `bench/run.mjs`. It generates
+deterministic synthetic fixtures, builds `target/release/jscan`, skips missing
+competitor tools, and writes CSV/Markdown results under `target/bench-results`.
+
+Initial local smoke run, 3 measured runs with 1 warmup:
+
+| Task | Tool | Median |
+| --- | --- | ---: |
+| Splunk 10k bounded profile | `jscan` | 55.68 ms |
+| Splunk 10k path inventory | `jscan` | 55.05 ms |
+| Splunk 10k record count | `jq` | 38.86 ms |
+| Splunk 10k record count | `rg` | 3.77 ms |
+| Splunk 10k field presence | `jq` | 41.10 ms |
+| Splunk 10k field presence | `rg` | 3.74 ms |
+| ZIA 10k `action == BLOCK` | `jq` | 33.69 ms |
+| ZIA 10k raw `BLOCK` count | `rg` | 4.15 ms |
+| Splunk 10k path inventory | `jq` | 509.72 ms |
+| Splunk 10k path inventory | `jscan` | 54.99 ms |
+
+Local machine caveats:
+
+- `jaq` and `jg` were not installed locally, so those rows were recorded as
+  missing.
+- `rg` is expected to win raw text smoke tests, but those tasks are marked
+  `raw_text` because they are not structurally safe JSON record predicates.
+- The first harness run exposed a directory-profile budget leak. `profile` now
+  truncates high-cardinality source/container/root tails when needed; the same
+  many-small fixture now emits 15,747 bytes under a 20 KB budget.
+
 ## Competitor Set
 
 Primary:

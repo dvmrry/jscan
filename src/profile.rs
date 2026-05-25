@@ -583,6 +583,9 @@ fn refresh_estimate(report: &mut ProfileReport) -> Result<()> {
 
 #[derive(Copy, Clone)]
 enum BudgetStep {
+    Sources(usize),
+    Containers(usize),
+    RecordRoots(usize),
     PathFacts(usize),
     ShapeFacts(usize),
     TypeVariations(usize),
@@ -618,6 +621,9 @@ const BUDGET_STEPS: &[BudgetStep] = &[
     BudgetStep::Samples(8),
     BudgetStep::SourceFields(10),
     BudgetStep::SourceArrays(6),
+    BudgetStep::Sources(80),
+    BudgetStep::Containers(80),
+    BudgetStep::RecordRoots(80),
     BudgetStep::PathFacts(10),
     BudgetStep::ShapeFacts(6),
     BudgetStep::TypeVariations(3),
@@ -629,6 +635,9 @@ const BUDGET_STEPS: &[BudgetStep] = &[
     BudgetStep::CommonValues(2),
     BudgetStep::Samples(2),
     BudgetStep::TypeVariations(1),
+    BudgetStep::Sources(40),
+    BudgetStep::Containers(40),
+    BudgetStep::RecordRoots(40),
     BudgetStep::Errors(5),
     BudgetStep::NextCommands(0),
     BudgetStep::NextTools(2),
@@ -637,10 +646,31 @@ const BUDGET_STEPS: &[BudgetStep] = &[
     BudgetStep::TypeVariations(0),
     BudgetStep::ShapeFacts(2),
     BudgetStep::PathFacts(3),
+    BudgetStep::Sources(12),
+    BudgetStep::Containers(12),
+    BudgetStep::RecordRoots(12),
 ];
 
 fn apply_budget_step(report: &mut ProfileReport, step: BudgetStep) {
     match step {
+        BudgetStep::Sources(max_len) => truncate_with_note(
+            &mut report.sources,
+            max_len,
+            &mut report.budget.omitted,
+            "sources_tail",
+        ),
+        BudgetStep::Containers(max_len) => truncate_with_note(
+            &mut report.containers,
+            max_len,
+            &mut report.budget.omitted,
+            "containers_tail",
+        ),
+        BudgetStep::RecordRoots(max_len) => truncate_with_note(
+            &mut report.record_roots,
+            max_len,
+            &mut report.budget.omitted,
+            "record_roots_tail",
+        ),
         BudgetStep::PathFacts(max_len) => truncate_with_note(
             &mut report.path_facts,
             max_len,

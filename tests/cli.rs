@@ -458,6 +458,49 @@ fn profile_budget_matches_emitted_json_and_preserves_evidence() {
 }
 
 #[test]
+fn profile_budget_bounds_many_source_directories() {
+    let dir = tempdir().expect("tempdir");
+    for file_index in 0..120 {
+        fs::write(
+            dir.path().join(format!("case-{file_index:03}.json")),
+            format!(
+                r#"{{"totalPages":1,"totalCount":1,"list":[{{"id":"case-{file_index}","status":"ok"}}]}}"#
+            ),
+        )
+        .expect("write fixture");
+    }
+
+    let stdout = command_stdout(
+        &[
+            "profile",
+            dir.path().to_str().expect("utf-8 path"),
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+    let output: Value = serde_json::from_slice(&stdout).expect("json output");
+
+    assert!(
+        stdout.len() <= 20 * 1024,
+        "profile exceeded budget: {} bytes",
+        stdout.len()
+    );
+    assert_eq!(
+        output["budget"]["estimated_bytes"]
+            .as_u64()
+            .expect("estimated bytes"),
+        stdout.len() as u64
+    );
+    assert_eq!(output["budget"]["truncated"], true);
+    assert!(
+        json_strings(&output["budget"]["omitted"]).contains(&"sources_tail".to_string()),
+        "expected sources_tail omission for large directory profile"
+    );
+}
+
+#[test]
 fn profile_keyword_signals_are_token_aware() {
     let output = command_json(
         &["profile", "--json", "--budget", "20kb"],

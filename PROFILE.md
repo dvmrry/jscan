@@ -74,6 +74,9 @@ Budgeting rules:
 - Always preserve high-priority structural metadata.
 - Preserve at least some representative samples and common values when
   possible; trim broad lower-value tails before dropping all value evidence.
+- For high-cardinality directory scans, source/container/record-root summaries
+  may be truncated after lower-priority evidence is reduced; record omitted
+  tails in `budget.omitted`.
 - When trimming occurs, report what was omitted.
 - The JSON report should remain valid and schema-stable even when budgeted.
 
