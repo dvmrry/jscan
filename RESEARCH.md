@@ -731,6 +731,43 @@ Riskier lane:
 > Becoming a structural query engine. `fastgron`, `jg`, `jq`/`jaq`, and
 > DuckDB already cover a lot of that territory.
 
+### Expanded Benchmark Reflection
+
+The first expanded benchmark with `jt`, `quicktype`, `genson-cli`,
+`json-to-schema`, `schemax`, `drivel`, `gron`, `fastgron`, and `duckdb` is not
+enough to declare the project dead. It is enough to show that several rows were
+apples-to-oranges:
+
+- `jt fields` was faster than `jscan paths --json` on synthetic Splunk JSONL,
+  but emitted a compact field list while `jscan` emitted a larger stable JSON
+  report with path counts, type counts, source/error metadata, and path display
+  variants.
+- `genson-cli --ndjson` and `drivel` were very fast schema baselines, but they
+  target schema inference, not source-line evidence, wrapper/root routing,
+  bounded samples, or next-tool guidance.
+- `fastgron` was very fast at flattening, but emitted megabytes of flattened
+  assignments. That is a different output contract from bounded agent context.
+- `quicktype` remained valuable after input normalization, but direct JSONL
+  still failed in the benchmark.
+
+The next benchmark pass should separate product contracts:
+
+1. Plain field/path list: compare `jt fields`, `jscan` if a plain mode exists,
+   `jq`/`jaq` path inventory, and `fastgron` path extraction.
+2. Path/type/count report: compare `jscan paths --json` with any competitor
+   command that can emit comparable counts and type evidence.
+3. Schema inference: compare `jt schema`, `genson-cli`, `quicktype`,
+   `json-to-schema`, `schemax`, `drivel`, and any future `jscan schema` only
+   on schema quality and speed.
+4. Bounded agent profile: compare `jscan profile` with a composed pipeline such
+   as `jt schema` plus `jt fields` plus hand-written routing notes, measuring
+   total bytes and whether record root/container/next-tool facts are present.
+
+This keeps the language/runtime question honest. A faster Go row does not imply
+Go is faster than Rust; it may simply do less work or emit a smaller artifact.
+The fair question is which tool produces the needed artifact fastest and with
+the least agent follow-up.
+
 ## Name Check
 
 Do not finalize the name until the wedge is chosen.

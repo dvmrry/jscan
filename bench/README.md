@@ -98,6 +98,14 @@ are structural baselines for different shapes of work. `jscan profile` is not a
 drop-in replacement for their filters; it is a bounded reconnaissance pass that
 should reduce blind follow-up probes.
 
+Compare rows by output contract before drawing conclusions. For example,
+`jt fields` and `jscan paths --json` both discover paths, but `jt fields`
+emits a compact field list while `jscan paths` emits a stable JSON report with
+path counts, type counts, source/error metadata, and display/path variants.
+That is useful product signal, but not a clean implementation-speed comparison.
+Add narrower rows when needed, such as a plain path-list mode or a competitor
+command that emits comparable path/type/count metadata.
+
 For downstream private data, keep the same columns and add notes for:
 
 - whether the command answered the actual investigation question

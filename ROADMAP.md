@@ -256,11 +256,18 @@ Capture:
 - output size
 - exit behavior
 - parse-error behavior
+- output contract, such as plain paths, path/type/count report, schema, flattened
+  assignments, bounded profile, or final query answer
 
 First harness pass exists in [bench/README.md](bench/README.md). It currently
 captures wall time, output size, status, command string, output hash, and
 semantic label. It also validates expected answers for count-style tasks. Peak
 memory capture is still future work.
+
+Before using benchmark results to make a product decision, split rows by output
+contract. The latest expanded benchmark showed useful overlap, but `jt fields`
+vs. `jscan paths --json`, schema inference vs. bounded profile, and flattening
+vs. bounded context are not clean speed comparisons.
 
 Workflow trials now exist too. They are synthetic and should not be treated as
 final product evidence, but they provide a stable shape for downstream private
