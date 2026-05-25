@@ -204,11 +204,7 @@ fn profile_detects_splunk_result_wrapper() {
         "$.result.ConnectionStatus",
     );
     assert_json_array_contains(&output["next_tools"], "tool", "rg");
-    assert_json_array_contains(
-        &output["next_tools"],
-        "command",
-        "jaq -c '.result | select(.ConnectionStatus? != null)' <input>",
-    );
+    assert_json_array_contains(&output["next_tools"], "command", "jaq -c '.result' <input>");
 }
 
 #[test]
@@ -237,10 +233,8 @@ fn profile_detects_paged_list_wrapper() {
             .expect("next_tools")
             .iter()
             .any(|tool| tool["command"]
-                .as_str()
-                .expect("command")
-                .contains(".list[]")),
-        "expected a next-tool command to use .list[]"
+                == "jaq -c '.list[] | select(.domainNames? != null)' <input>"),
+        "expected a next-tool command to use .list[] and a selective path"
     );
 }
 
@@ -260,6 +254,38 @@ fn profile_detects_top_level_array() {
     assert_json_array_contains(&output["containers"], "kind", "root_array");
     assert_json_array_contains(&output["record_roots"], "display_path", "$[]");
     assert_json_array_contains(&output["path_facts"], "display_path", "$[].action");
+    assert_json_array_contains(&output["next_tools"], "command", "jaq -c '.[]' <input>");
+}
+
+#[test]
+fn profile_top_level_array_next_tool_uses_dot_array_wildcard() {
+    let output = command_json(
+        &["profile", "--json", "--budget", "20kb"],
+        Some(
+            r#"[
+                {"id": 1, "action": "ALLOW"},
+                {"id": 2, "action": "BLOCK", "endUserNotificationUrl": "https://notify.example.test"}
+            ]"#,
+        ),
+    );
+
+    assert_json_array_contains(&output["record_roots"], "display_path", "$[]");
+    assert_json_array_contains(
+        &output["next_tools"],
+        "command",
+        "jaq -c '.[] | select(.endUserNotificationUrl? != null)' <input>",
+    );
+    assert!(
+        !output["next_tools"]
+            .as_array()
+            .expect("next_tools")
+            .iter()
+            .any(|tool| tool["command"]
+                .as_str()
+                .expect("command")
+                .starts_with("jaq -c '[]")),
+        "root arrays must render as .[], not []"
+    );
 }
 
 #[test]

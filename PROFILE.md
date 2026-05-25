@@ -271,8 +271,13 @@ The first version can emit deterministic next-tool hints:
 - this tool's `paths` / `shape` commands for deeper local reconnaissance.
 
 Hints should use detected record roots when possible. For example, Splunk row
-wrappers should suggest filters rooted under `.result`, and paged API wrappers
-should suggest filters rooted under `.list[]`.
+wrappers should suggest commands rooted under `.result`, paged API wrappers
+should use `.list[]`, and top-level arrays should use `.[]`.
+
+Presence filters should only be emitted when the observed path is narrower than
+the detected record root. If every candidate field appears on every record, the
+hint should project the record root rather than presenting a non-selective
+`select(path? != null)` as the next query.
 
 Hints should include:
 

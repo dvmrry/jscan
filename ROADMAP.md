@@ -29,7 +29,9 @@ Implemented:
 - Linear shape inference using a parent-child path index
 - `profile --budget <size> --json` with container/record-root detection,
   rooted next-tool hints, token-aware field signals, and emitted-byte budget
-  accounting
+  accounting. Rooted hints now render top-level arrays as `.[]` and avoid
+  non-selective scalar presence predicates when every candidate field appears
+  on every record.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -245,6 +247,8 @@ Start here:
    - samples and common values are still present when possible
    - `description` / `apiProtectionEnabled` are not tagged as `keyword:ip`
    - next-tool hints use `$.result`, `$.list[]`, or `$[]`
+   - top-level array commands render `.[]`, not `[]`
+   - presence `select(...)` hints are only emitted for narrower observed paths
 4. Use that feedback to decide whether to:
    - improve `profile`
    - add focused grep/find

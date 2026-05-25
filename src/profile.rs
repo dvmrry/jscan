@@ -769,7 +769,15 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
     let jq_command = format!("jq -c {} <input>", shell_quote(&structural_filter));
     let jg_pattern = candidate
         .map(|fact| fact.display_path.as_str())
+        .or(root.map(|root| root.display_path.as_str()))
         .unwrap_or("<path-pattern>");
+    let structural_reason = if candidate.is_some() {
+        format!("filter from detected record root {root_label} using a narrower observed path")
+    } else {
+        format!(
+            "project detected record root {root_label}; no narrower scalar presence predicate was found"
+        )
+    };
 
     vec![
         NextToolHint {
@@ -780,15 +788,13 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
         },
         NextToolHint {
             tool: "jaq".to_string(),
-            reason: format!("fast JSON-aware filtering from detected record root {root_label}"),
+            reason: format!("fast JSON-aware {structural_reason}"),
             caveat: "requires a known filter and JSON-aware semantics".to_string(),
             command: jaq_command,
         },
         NextToolHint {
             tool: "jq".to_string(),
-            reason: format!(
-                "widely available JSON filtering from detected record root {root_label}"
-            ),
+            reason: format!("widely available JSON {structural_reason}"),
             caveat: "can be slower for repeated broad probes".to_string(),
             command: jq_command,
         },
@@ -916,7 +922,10 @@ fn next_path_for_root<'a>(
         .filter_map(|(index, fact)| {
             let segments =
                 relative_pointer_segments(&root.pointer_template, &fact.pointer_template)?;
-            if !has_scalar_type(&fact.types) || segments.is_empty() {
+            if !has_scalar_type(&fact.types)
+                || segments.is_empty()
+                || !is_selective_path(root, fact)
+            {
                 return None;
             }
 
@@ -925,6 +934,10 @@ fn next_path_for_root<'a>(
         })
         .min_by_key(|(array_item_leaf, index, _)| (*array_item_leaf, *index))
         .map(|(_, _, fact)| fact)
+}
+
+fn is_selective_path(root: &RecordRootFact, fact: &PathFact) -> bool {
+    root.record_count == 0 || fact.count < root.record_count
 }
 
 fn structural_filter(root: &RecordRootFact, candidate: Option<&PathFact>) -> String {
@@ -973,6 +986,9 @@ fn jq_expr_from_segments(segments: &[String], optional_last: bool) -> String {
         let is_last = index + 1 == segments.len();
         let optional = optional_last && is_last;
         if segment == "*" {
+            if output.is_empty() {
+                output.push('.');
+            }
             output.push_str(if optional { "[]?" } else { "[]" });
         } else if is_jq_identifier(segment) {
             output.push('.');

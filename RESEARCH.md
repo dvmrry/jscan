@@ -256,6 +256,44 @@ Recommendation from the review:
 > but fix format truthfulness, budget accounting, value preservation, and
 > adaptive guidance before adding focused grep/find.
 
+### Downstream Rerun After Profile Fixes
+
+The private-data reviewer reran profile on the follow-up commit and confirmed
+the main previous issues were fixed:
+
+- `.json` Splunk NDJSON now reports `format: jsonl` and includes
+  `jsonl_records`.
+- Budget estimates match emitted pretty JSON byte size.
+- 20 KB profiles preserve samples and common values.
+- `description` and `apiProtectionEnabled` no longer get false `keyword:ip`
+  signals.
+- BARX mixed-type fields report `mixed_types` without the old noisy IP signal.
+
+Private rerun examples stayed within budget:
+
+- ADO profile: 18,572 bytes in 0.14s.
+- BARX profile: 20,239 bytes in 0.02s.
+- ZPA wrapper profile: 19,570 bytes in 0.01s.
+- ZIA root-array profile: 20,335 bytes in 0.01s.
+
+New findings from that rerun:
+
+- Top-level array next-tool commands rendered a root wildcard as `[]` instead
+  of `.[]`, so `jaq -c '[] | select(...)'` returned no matches where
+  `jaq -c '.[] | select(...)'` was correct.
+- Generated `select(path? != null)` filters were structurally valid for
+  wrappers, but often non-selective because the chosen field existed on every
+  record. In those cases the command validated the record root but did not
+  narrow the next query.
+
+Adjustment:
+
+- Root wildcard rendering should produce `.[]` for top-level arrays.
+- Next-tool hints should only emit a scalar presence `select(...)` when the
+  candidate path is narrower than the detected record root. If no narrower path
+  is available, the hint should project the record root and say no selective
+  predicate was found.
+
 Candidate workflow to test:
 
 ```sh
