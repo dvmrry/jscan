@@ -291,6 +291,15 @@ function benchmarkTasks(f, t) {
   return [
     jscanTask("profile_splunk_10k", [t.jscan, "profile", f.splunk10k, "--budget", "20kb", "--json"], "bounded scout profile over Splunk-style JSONL"),
     jscanTask("paths_splunk_10k", [t.jscan, "paths", f.splunk10k, "--json"], "path/type inventory over JSONL"),
+    jscanTask("paths_plain_splunk_10k", [t.jscan, "paths", f.splunk10k, "--plain"], "plain path list over JSONL; includes root and array-item paths", {
+      answerFrom: stdoutLineCountAnswer,
+    }),
+    toolTask("paths_plain_splunk_10k", "jt", [t.jt, f.splunk10k, "fields"], "jsont compact field list over JSONL", {
+      answerFrom: stdoutLineCountAnswer,
+    }),
+    jscanTask("paths_tsv_splunk_10k", [t.jscan, "paths", f.splunk10k], "TSV path/type/count inventory over JSONL", {
+      answerFrom: stdoutLineCountAnswer,
+    }),
     jscanTask("shape_splunk_10k", [t.jscan, "shape", f.splunk10k, "--json"], "object field optionality over JSONL"),
     jscanTask("profile_zia_array_10k", [t.jscan, "profile", f.zia10k, "--budget", "20kb", "--json"], "bounded scout profile over top-level array"),
     jscanTask("profile_paged_5k", [t.jscan, "profile", f.paged5k, "--budget", "20kb", "--json"], "bounded scout profile over paged wrapper"),

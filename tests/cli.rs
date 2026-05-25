@@ -21,6 +21,33 @@ fn paths_outputs_pretty_table() {
 }
 
 #[test]
+fn paths_outputs_plain_path_list() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("paths")
+        .arg("tests/fixtures/basic.json")
+        .arg("--plain")
+        .assert()
+        .success()
+        .stdout(
+            "$\n$.service\n$.users\n$.users[]\n$.users[].active\n$.users[].email\n$.users[].id\n$.version\n",
+        );
+}
+
+#[test]
+fn paths_plain_conflicts_with_json_output() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("paths")
+        .arg("tests/fixtures/basic.json")
+        .arg("--plain")
+        .arg("--json")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--plain cannot be combined"));
+}
+
+#[test]
 fn paths_outputs_stable_json_with_errors() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 

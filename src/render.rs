@@ -24,6 +24,14 @@ pub fn write_paths<W: Write>(writer: &mut W, report: &PathReport, mode: OutputMo
     Ok(())
 }
 
+pub fn write_path_list<W: Write>(writer: &mut W, report: &PathReport) -> Result<()> {
+    for entry in &report.paths {
+        writeln!(writer, "{}", entry.display_path)?;
+    }
+
+    Ok(())
+}
+
 pub fn write_shape<W: Write>(writer: &mut W, report: &ShapeReport, mode: OutputMode) -> Result<()> {
     match mode {
         OutputMode::Json => {

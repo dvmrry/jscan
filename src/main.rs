@@ -1,12 +1,12 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
     InputFormat, InputOptions, OutputMode, PathsOptions, ProfileOptions, ShapeOptions,
-    build_profile, collect_paths, discover_inputs, infer_shape, write_paths, write_profile,
-    write_shape,
+    build_profile, collect_paths, discover_inputs, infer_shape, write_path_list, write_paths,
+    write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -30,6 +30,10 @@ enum Command {
 struct PathsCommand {
     #[command(flatten)]
     scan: ScanArgs,
+
+    /// Emit one observed display path per line.
+    #[arg(long)]
+    plain: bool,
 }
 
 #[derive(Debug, Parser)]
@@ -105,7 +109,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Paths(cmd) => {
-            let output = output_mode(&cmd.scan);
+            ensure_plain_paths_is_compatible(&cmd)?;
             let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
             let report = collect_paths(
                 &inputs,
@@ -118,7 +122,11 @@ fn main() -> Result<()> {
 
             let stdout = io::stdout();
             let mut lock = stdout.lock();
-            write_paths(&mut lock, &report, output)?;
+            if cmd.plain {
+                write_path_list(&mut lock, &report)?;
+            } else {
+                write_paths(&mut lock, &report, output_mode(&cmd.scan))?;
+            }
             lock.flush()?;
             enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
         }
@@ -217,6 +225,14 @@ fn output_mode(args: &ScanArgs) -> OutputMode {
         Format::Pretty => OutputMode::Pretty,
         Format::Json => OutputMode::Json,
     }
+}
+
+fn ensure_plain_paths_is_compatible(cmd: &PathsCommand) -> Result<()> {
+    if cmd.plain && (cmd.scan.json || cmd.scan.format.is_some()) {
+        bail!("--plain cannot be combined with --json or --format");
+    }
+
+    Ok(())
 }
 
 fn input_options(args: &ScanArgs) -> InputOptions {
