@@ -35,7 +35,9 @@ Implemented:
   jq-safe root bracket syntax like `.["items-list"][]`.
 - Repo-local CLI benchmark harness in [bench/run.mjs](bench/run.mjs), with
   deterministic synthetic fixtures and CSV/Markdown output under
-  `target/bench-results`.
+  `target/bench-results`. Benchmark rows include semantic answer validation for
+  tasks with known answers, so exit-zero/no-output cases are not reported as
+  successful measurements.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -200,7 +202,8 @@ Capture:
 
 First harness pass exists in [bench/README.md](bench/README.md). It currently
 captures wall time, output size, status, command string, output hash, and
-semantic label. Peak-memory capture is still future work.
+semantic label. It also validates expected answers for count-style tasks. Peak
+memory capture is still future work.
 
 ## Phase 4: Performance And Large Inputs
 

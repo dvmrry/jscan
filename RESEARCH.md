@@ -327,6 +327,9 @@ Measurement should include not only raw speed, but also:
 A repo-local CLI harness now lives at `bench/run.mjs`. It generates
 deterministic synthetic fixtures, builds `target/release/jscan`, skips missing
 competitor tools, and writes CSV/Markdown results under `target/bench-results`.
+Rows now include semantic `Answer` and `Expected` fields for tasks where a
+stable answer is known; commands that exit zero with the wrong answer are marked
+`wrong_answer`.
 
 Initial local smoke run, 3 measured runs with 1 warmup:
 
@@ -352,6 +355,17 @@ Local machine caveats:
 - The first harness run exposed a directory-profile budget leak. `profile` now
   truncates high-cardinality source/container/root tails when needed; the same
   many-small fixture now emits 15,747 bytes under a 20 KB budget.
+
+Downstream harness review found two false-positive benchmark rows in the first
+version:
+
+- `jg '$.result.ConnectionStatus'` against JSONL exited zero but emitted zero
+  bytes. The harness now uses `jg -f jsonl -F ConnectionStatus --count
+  --no-display` for that task and validates the expected answer `10000`.
+- `rg -c '"action":"BLOCK"'` counted matching lines, not matches, because the
+  ZIA fixture is a single-line JSON array. The harness now uses
+  `rg --count-matches` for occurrence-count comparison and validates the
+  expected answer `2000`.
 
 ## Competitor Set
 

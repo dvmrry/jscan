@@ -45,6 +45,11 @@ Missing competitor tools are recorded as `status=missing` rather than failing
 the run. That lets local and downstream/private runs use the same harness even
 when their installed tools differ.
 
+Some tasks also define an expected semantic answer. For example, the synthetic
+Splunk fixture has 10,000 `ConnectionStatus` fields and the synthetic ZIA array
+has 2,000 `BLOCK` actions. If a command exits zero but emits the wrong answer,
+the row is recorded as `status=wrong_answer` instead of `ok`.
+
 ## Reading Results
 
 Do not interpret raw speed alone as the product answer.
@@ -61,3 +66,7 @@ For downstream private data, keep the same columns and add notes for:
 - whether the output improved the next Splunk/KQL/Grafana/API query
 - how many exploratory commands it replaced
 - whether sensitive values had to be redacted
+
+When adding a benchmark task, prefer adding an `expectedAnswer` and `answerFrom`
+extractor. Exit status alone is not enough; some tools can succeed while
+emitting no useful answer for a given input format.

@@ -274,43 +274,84 @@ function benchmarkTasks(f, t) {
     jscanTask("profile_many_small", [t.jscan, "profile", f.manySmall, "--budget", "20kb", "--json"], "directory scan across many small JSON files"),
     jscanTask("paths_noisy_dir", [t.jscan, "paths", f.noisy, "--json"], "partial scan with malformed JSON"),
 
-    toolTask("count_splunk_records", "jq", [t.jq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records"),
-    toolTask("count_splunk_records", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records"),
-    toolTask("count_splunk_records", "rg", [t.rg, "-c", "^\\{", f.splunk10k], "raw text line count smoke test"),
+    toolTask("count_splunk_records", "jq", [t.jq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("count_splunk_records", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("count_splunk_records", "rg", [t.rg, "-c", "^\\{", f.splunk10k], "raw text line count smoke test", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
 
-    toolTask("field_presence_connection_status", "jq", [t.jq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count"),
-    toolTask("field_presence_connection_status", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count"),
-    toolTask("field_presence_connection_status", "rg", [t.rg, "-c", "\"ConnectionStatus\"", f.splunk10k], "raw text field occurrence count"),
-    toolTask("field_presence_connection_status", "jg", [t.jg, "$.result.ConnectionStatus", f.splunk10k], "JSON-aware field-presence scan"),
-    jscanTask("field_presence_connection_status", [t.jscan, "paths", f.splunk10k, "--json"], "jscan path inventory includes $.result.ConnectionStatus count"),
+    toolTask("field_presence_connection_status", "jq", [t.jq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("field_presence_connection_status", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("field_presence_connection_status", "rg", [t.rg, "-c", "\"ConnectionStatus\"", f.splunk10k], "raw text field occurrence count", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("field_presence_connection_status", "jg", [t.jg, "-f", "jsonl", "-F", "ConnectionStatus", "--count", "--no-display", f.splunk10k], "JSON-aware field-presence scan", {
+      expectedAnswer: "10000",
+      answerFrom: stdoutAnswer,
+    }),
+    jscanTask("field_presence_connection_status", [t.jscan, "paths", f.splunk10k, "--json"], "jscan path inventory includes $.result.ConnectionStatus count", {
+      expectedAnswer: "10000",
+      answerFrom: pathCountAnswer("$.result.ConnectionStatus"),
+    }),
 
-    toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array"),
-    toolTask("filter_zia_block", "jaq", [t.jaq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array"),
-    toolTask("filter_zia_block", "rg", [t.rg, "-c", "\"action\":\"BLOCK\"", f.zia10k], "raw text value occurrence count"),
+    toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("filter_zia_block", "jaq", [t.jaq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("filter_zia_block", "rg", [t.rg, "--count-matches", "\"action\":\"BLOCK\"", f.zia10k], "raw text value occurrence count", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
 
-    toolTask("path_inventory_splunk", "jq", [t.jq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jq path inventory baseline"),
-    toolTask("path_inventory_splunk", "jaq", [t.jaq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jaq path inventory baseline"),
-    jscanTask("path_inventory_splunk", [t.jscan, "paths", f.splunk10k, "--json"], "jscan native path/type inventory"),
+    toolTask("path_inventory_splunk", "jq", [t.jq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jq path inventory baseline", {
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("path_inventory_splunk", "jaq", [t.jaq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jaq path inventory baseline", {
+      answerFrom: stdoutAnswer,
+    }),
+    jscanTask("path_inventory_splunk", [t.jscan, "paths", f.splunk10k, "--json"], "jscan native path/type inventory", {
+      answerFrom: pathsLengthAnswer,
+    }),
   ];
 }
 
-function jscanTask(task, command, note) {
+function jscanTask(task, command, note, extra = {}) {
   return {
     task,
     tool: "jscan",
     command,
     semantic: "json_structural",
     note,
+    ...extra,
   };
 }
 
-function toolTask(task, tool, command, note) {
+function toolTask(task, tool, command, note, extra = {}) {
   return {
     task,
     tool,
     command,
     semantic: tool === "rg" ? "raw_text" : "json_structural",
     note,
+    ...extra,
   };
 }
 
@@ -331,8 +372,19 @@ function runBenchmark(task, opts) {
   }
 
   const statuses = new Set(runs.map((run) => run.status));
-  const status = statuses.size === 1 && statuses.has(0) ? "ok" : `exit:${[...statuses].join("|")}`;
+  let status = statuses.size === 1 && statuses.has(0) ? "ok" : `exit:${[...statuses].join("|")}`;
+  const answers = runs.map((run) => answerFor(task, run));
+  if (status === "ok" && answers.some((answer) => answer.error)) {
+    status = "answer_error";
+  } else if (
+    status === "ok"
+    && task.expectedAnswer !== undefined
+    && answers.some((answer) => answer.value !== task.expectedAnswer)
+  ) {
+    status = "wrong_answer";
+  }
   const times = runs.map((run) => run.elapsedMs).sort((a, b) => a - b);
+  const lastAnswer = answers.at(-1);
   const stdoutBytes = last?.stdout.length ?? 0;
   const stderrBytes = last?.stderr.length ?? 0;
   const stdoutLines = countLines(last?.stdout ?? Buffer.alloc(0));
@@ -351,9 +403,40 @@ function runBenchmark(task, opts) {
     stdout_lines: stdoutLines,
     stderr_bytes: stderrBytes,
     stdout_sha256: stdoutSha256,
+    answer: lastAnswer?.error ? `error:${lastAnswer.error}` : (lastAnswer?.value ?? ""),
+    expected_answer: task.expectedAnswer ?? "",
     command: commandDisplay(task.command),
     note: task.note,
   };
+}
+
+function answerFor(task, run) {
+  if (!task.answerFrom || run.status !== 0) {
+    return { value: "" };
+  }
+
+  try {
+    return { value: task.answerFrom(run.stdout) };
+  } catch (error) {
+    return { value: "", error: error.message };
+  }
+}
+
+function stdoutAnswer(stdout) {
+  return stdout.toString("utf8").trim();
+}
+
+function pathCountAnswer(displayPath) {
+  return (stdout) => {
+    const report = JSON.parse(stdout.toString("utf8"));
+    const entry = report.paths.find((path) => path.display_path === displayPath);
+    return String(entry?.count ?? "");
+  };
+}
+
+function pathsLengthAnswer(stdout) {
+  const report = JSON.parse(stdout.toString("utf8"));
+  return String(report.paths.length);
 }
 
 function runOnce(command) {
@@ -386,6 +469,8 @@ function missingRow(task) {
     stdout_lines: 0,
     stderr_bytes: 0,
     stdout_sha256: "",
+    answer: "",
+    expected_answer: task.expectedAnswer ?? "",
     command: commandDisplay(task.command),
     note: task.note,
   };
@@ -429,6 +514,8 @@ function writeCsv(path, rows) {
     "stdout_lines",
     "stderr_bytes",
     "stdout_sha256",
+    "answer",
+    "expected_answer",
     "command",
     "note",
   ];
@@ -449,7 +536,7 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
   const resultRows = rows
     .map(
       (row) =>
-        `| ${row.task} | ${row.tool} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.note)} |`,
+        `| ${row.task} | ${row.tool} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.answer)} | ${escapeMd(row.expected_answer)} | ${escapeMd(row.note)} |`,
     )
     .join("\n");
 
@@ -476,11 +563,12 @@ ${fixtureRows}
 
 ## Results
 
-| Task | Tool | Semantic | Status | Runs | Median ms | Stdout bytes | Note |
-| --- | --- | --- | --- | ---: | ---: | ---: | --- |
+| Task | Tool | Semantic | Status | Runs | Median ms | Stdout bytes | Answer | Expected | Note |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
 ${resultRows}
 
-Full command strings and output hashes are in the CSV result next to this file.
+Full command strings, output hashes, and answer validation fields are in the CSV
+result next to this file.
 `,
   );
 }
