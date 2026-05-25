@@ -1,0 +1,302 @@
+# Research Plan
+
+We paused implementation because there are two related but different product
+visions in play.
+
+## The Two Visions
+
+### Vision A: The Scout
+
+A small Unix-style helper for humans and agents that do not understand the JSON
+yet.
+
+Typical commands:
+
+```sh
+jsonq paths data.jsonl
+jsonq shape data.jsonl
+jsonq sample --path /user/email data.jsonl
+jsonq find --evidence query.json data.jsonl
+```
+
+Primary value:
+
+- orientation
+- path/type discovery
+- schema or shape inference
+- bounded samples
+- source/line/path evidence
+- agent-friendly JSON output
+
+Relationship to `jq`: complements it.
+
+### Vision B: The Engine
+
+A fast structural query tool that replaces broad or slow `jq` searches in many
+common cases.
+
+Typical commands:
+
+```sh
+jsonq 'object(status="failed", error.message:string)' logs.jsonl
+jsonq get 'orders[].items[] where sku =~ "^ABC"' dump.json
+jsonq find query.json --values logs.jsonl
+jsonq find query.json --count logs.jsonl
+```
+
+Primary value:
+
+- fast broad search
+- streaming JSONL evaluation
+- structural predicates
+- extraction of matching values or subtrees
+- fewer trips through `jq`
+
+Relationship to `jq`: overlaps with part of its query role, but should not grow
+into a full transformation language.
+
+## Working Hypothesis
+
+Build the Scout first, but design the internals so the Engine can grow from it.
+
+Early external behavior should emphasize evidence:
+
+```sh
+jsonq find --query q.json logs.jsonl
+```
+
+Later output modes may serve the Engine vision:
+
+```sh
+jsonq find --query q.json --values logs.jsonl
+jsonq find --query q.json --count logs.jsonl
+jsonq find --query q.json --ndjson logs.jsonl
+```
+
+The key boundary:
+
+> Query for structure, location, and matching values. Do not become a general
+> JSON programming and transformation language.
+
+## Research Question
+
+What is the best wedge?
+
+- agent-friendly JSON reconnaissance
+- fast structural query engine
+- a hybrid with discovery first and query delivery second
+
+## Field Notes From Target Workflow
+
+Primary target pain:
+
+- Network/security investigation workflows over logs and API outputs.
+- Agents often run several `jq` / `jaq` passes over the same document or log set.
+- The user sees this as dead-air time: repeated "thinking..." steps and repeated
+  exploratory shell commands before the agent has enough context.
+- When agents have a full schema or strong field map, generated Splunk,
+  Grafana/KQL, API, and local JSON queries are much better.
+
+Common search shapes mentioned:
+
+- key exists
+- key/value match
+- arrays containing multiple terms or matching objects
+- broad search across raw logs
+- examples of matching records
+- compact context for downstream agent query generation
+
+Inputs to support:
+
+- JSONL logs
+- giant JSON arrays
+- API response objects
+- Splunk-exported or security-tool logs
+- mixed directories of saved responses and schemas
+
+Important uncertainty:
+
+- The user is not asking for a theoretical query language. The useful product
+  may be the thing that avoids repeated blind jq probing by doing a fast
+  one-pass profile and then targeted structural grep.
+- Embedded JSON in raw log text may be useful, but only if it can be optional
+  or cheap enough not to undermine speed.
+
+Candidate workflow to test:
+
+```sh
+jsonq profile logs.jsonl --budget 20kb --json
+jsonq grep logs.jsonl --has error.message --has user.id --examples 5
+jsonq grep logs.jsonl --array-contains events '{ "action": "blocked" }'
+```
+
+Measurement should include not only raw speed, but also:
+
+- number of commands an agent needs before it can produce a good query
+- total bytes/tokens emitted to the agent
+- whether source/line/path evidence is sufficient to avoid another pass
+- whether the output improves generated Splunk/Grafana/KQL/API queries
+
+## Competitor Set
+
+Primary:
+
+- `jq`
+- `jaq`
+- `jsongrep` / `jg`
+- `jsont` / `jt`
+
+Secondary:
+
+- `gron`
+- `fastgron`
+- `ripgrep` over raw JSON
+- `duckdb` for table-shaped JSONL
+- JSONPath / JMESPath / JSONata CLIs if a mature command-line baseline exists
+
+## Competitor Questions
+
+For each competitor, answer:
+
+- What is its mental model?
+- What is easy?
+- What is awkward?
+- How does it handle JSONL?
+- Can it scan many files?
+- Can it scan noisy directories?
+- Does it emit source, line, path, and bounded evidence?
+- Does it infer paths or shape?
+- Can it output matching values?
+- Can it count matches?
+- Where does it get slow?
+- What command would an agent have to write for broad structural search?
+
+## Use Case Corpus
+
+Write concrete tasks before designing more syntax. Each task should be phrased
+as a user need, not as a feature.
+
+Seed tasks:
+
+1. I have 4 GB of JSONL logs. Find records where an error object has a message
+   and a user ID.
+2. I have a HAR file. Show what request and response fields exist.
+3. I have a GitHub API dump. Find objects where `permissions.admin` is true.
+4. I have unknown JSON and need to keep output under 20 KB while learning its
+   structure.
+5. I have logs where `status` sometimes changes type. Show the paths and sample
+   values.
+6. I have a directory with mixed JSON, text, and broken files. Report usable
+   JSON without aborting.
+7. I need every path that can contain a token-like key.
+8. I need examples of records that contain `user.email`, without dumping the
+   entire record.
+9. I need to count JSONL records where an array contains an object with
+   `sku == "ABC"`.
+10. I need matching values as NDJSON so another command can consume them.
+11. I need to discover optional fields in a stream of event objects.
+12. I need to find nested objects shaped like `{id, name, email?}`.
+13. I need to compare how many records have `error.message` across many files.
+14. I need source line and JSON path for every match.
+15. I need to scan a huge top-level JSON array without loading everything.
+16. I need a command an agent can run before writing a custom parser.
+17. I need to know whether a field is enum-like and see common values.
+18. I need to search for a string value structurally, not as raw text.
+19. I need path discovery across thousands of small JSON files.
+20. I need parse errors summarized without hiding that more errors were
+   truncated.
+
+## Task Classification
+
+For every task, classify it as:
+
+- Scout
+- Engine
+- Both
+- Not ours
+
+Also record:
+
+- best `jq` command
+- best `jaq` command
+- best `jsongrep` command
+- best `jsont` command
+- best raw `rg`/`gron`/other command where applicable
+- whether the command is obvious enough for an agent to generate safely
+- expected output shape
+- what our ideal command would be
+
+## Benchmark Sketch
+
+Benchmarks should follow the tasks, not the other way around.
+
+Discovery benchmarks:
+
+- path inventory
+- shape discovery
+- bounded samples
+- many small files
+- noisy/malformed directories
+
+Search benchmarks:
+
+- key anywhere
+- path pattern
+- string value anywhere
+- object containing field set
+- nested array element predicate
+- count-only query
+- value extraction query
+
+Stress benchmarks:
+
+- huge JSONL
+- huge top-level array
+- high match count
+- rare match
+- deeply nested input
+- mixed valid and invalid files
+
+Metrics:
+
+- wall time
+- peak memory
+- output size
+- exit behavior
+- parse-error behavior
+- command complexity
+
+## Name Check
+
+Do not finalize the name until the wedge is chosen.
+
+If the product is mostly Scout:
+
+- `json-recon`
+- `jrecon`
+- `json-locate`
+- `json-scout`
+
+If the product is more Engine:
+
+- `jsonq`
+- `jsift`
+- `jwhere`
+
+The name should match expectations. `jsonq` is plausible for the Engine vision,
+but it invites comparison with JSON query/transformation languages.
+
+## First Place To Start
+
+Start with the use case corpus.
+
+Reason: competitor research without concrete tasks can become a museum tour.
+Tasks reveal whether the real wedge is Scout, Engine, or hybrid.
+
+Immediate next step:
+
+1. Pick 8 to 10 seed tasks from the corpus above.
+2. For each task, write the best command in `jq`, `jaq`, `jsongrep`, and
+   `jsont`.
+3. Mark each task Scout, Engine, Both, or Not ours.
+4. Only then decide whether `jsonq` is the right name.

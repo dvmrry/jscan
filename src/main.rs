@@ -1,0 +1,168 @@
+use std::io::{self, Write};
+use std::path::PathBuf;
+
+use anyhow::Result;
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use jscan::{
+    InputFormat, InputOptions, OutputMode, PathsOptions, ShapeOptions, collect_paths,
+    discover_inputs, infer_shape, write_paths, write_shape,
+};
+
+#[derive(Debug, Parser)]
+#[command(version, about)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Inventory every observed structural path and JSON type.
+    Paths(PathsCommand),
+    /// Infer object fields, optionality, and array item shapes.
+    Shape(ShapeCommand),
+}
+
+#[derive(Debug, Parser)]
+struct PathsCommand {
+    #[command(flatten)]
+    scan: ScanArgs,
+}
+
+#[derive(Debug, Parser)]
+struct ShapeCommand {
+    #[command(flatten)]
+    scan: ScanArgs,
+}
+
+#[derive(Debug, Args)]
+struct ScanArgs {
+    /// Files or directories to scan. Use '-' for stdin. Defaults to stdin.
+    #[arg(value_name = "INPUT")]
+    inputs: Vec<PathBuf>,
+
+    /// Emit stable machine-readable JSON.
+    #[arg(long)]
+    json: bool,
+
+    /// Output format. Defaults to pretty unless --json is set.
+    #[arg(long, value_enum)]
+    format: Option<Format>,
+
+    /// Maximum number of parse errors to keep in the report.
+    #[arg(long, default_value_t = 20)]
+    max_errors: usize,
+
+    /// Maximum number of scalar sample values to retain per path.
+    #[arg(long, default_value_t = 0)]
+    samples: usize,
+
+    /// Maximum number of characters to keep in a string sample preview.
+    #[arg(long, default_value_t = 200)]
+    sample_max_chars: usize,
+
+    /// How to parse each input.
+    #[arg(long, value_enum, default_value_t = InputFormatArg::Auto)]
+    input_format: InputFormatArg,
+
+    /// Include non-JSON-looking files when scanning directories.
+    #[arg(long)]
+    all_files: bool,
+
+    /// Exit non-zero if any input could not be fully parsed.
+    #[arg(long)]
+    strict: bool,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum Format {
+    Pretty,
+    Json,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum InputFormatArg {
+    Auto,
+    Json,
+    Jsonl,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Command::Paths(cmd) => {
+            let output = output_mode(&cmd.scan);
+            let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
+            let report = collect_paths(
+                &inputs,
+                &input_options(&cmd.scan),
+                &PathsOptions {
+                    samples_per_path: cmd.scan.samples,
+                    sample_max_chars: cmd.scan.sample_max_chars,
+                },
+            )?;
+
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            write_paths(&mut lock, &report, output)?;
+            lock.flush()?;
+            enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
+        }
+        Command::Shape(cmd) => {
+            let output = output_mode(&cmd.scan);
+            let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
+            let path_report = collect_paths(
+                &inputs,
+                &input_options(&cmd.scan),
+                &PathsOptions {
+                    samples_per_path: cmd.scan.samples,
+                    sample_max_chars: cmd.scan.sample_max_chars,
+                },
+            )?;
+            let shape_report = infer_shape(&path_report, &ShapeOptions {})?;
+
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            write_shape(&mut lock, &shape_report, output)?;
+            lock.flush()?;
+            enforce_strict(
+                cmd.scan.strict,
+                shape_report.partial,
+                shape_report.error_count,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn output_mode(args: &ScanArgs) -> OutputMode {
+    if args.json {
+        return OutputMode::Json;
+    }
+
+    match args.format.unwrap_or(Format::Pretty) {
+        Format::Pretty => OutputMode::Pretty,
+        Format::Json => OutputMode::Json,
+    }
+}
+
+fn input_options(args: &ScanArgs) -> InputOptions {
+    InputOptions {
+        format: match args.input_format {
+            InputFormatArg::Auto => InputFormat::Auto,
+            InputFormatArg::Json => InputFormat::Json,
+            InputFormatArg::Jsonl => InputFormat::Jsonl,
+        },
+        max_errors: args.max_errors,
+    }
+}
+
+fn enforce_strict(strict: bool, partial: bool, error_count: usize) -> Result<()> {
+    if strict && partial {
+        anyhow::bail!("scan completed with {error_count} error(s)");
+    }
+
+    Ok(())
+}

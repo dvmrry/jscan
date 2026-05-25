@@ -1,0 +1,16 @@
+{
+  "service": "checkout",
+  "version": 3,
+  "users": [
+    {
+      "id": 1,
+      "email": "a@example.test",
+      "active": true
+    },
+    {
+      "id": 2,
+      "email": null,
+      "active": false
+    }
+  ]
+}
