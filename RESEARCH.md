@@ -174,6 +174,85 @@ Important caveat:
   `cargo` was unavailable, so this validation was based on local data inspection
   with existing tools rather than direct prototype execution.
 
+### Private Downloads Reconnaissance Signal
+
+A later private-data pass looked at the user's top-level Downloads directory,
+not the project-specific overlay. Redacted summary:
+
+| Item | Count |
+| --- | ---: |
+| total top-level files | 632 |
+| `.json` files | 154 |
+| JSON-ish top-level files including HAR/tfstate | 157 |
+| opaque timestamp/GUID `.json` names | 67 |
+| regression timestamp `.json` names | 46 |
+| parsed JSON/JSONL records | 490,496 |
+| discovered structural paths | 2,638 |
+
+The important finding was that many opaque `.json` filenames were not random
+JSON blobs. They were raw Splunk exports named like timestamp/GUID artifacts,
+for example:
+
+```text
+1777422460_569008_3BA42A40-548E-491A-936D-C209D2DFC4DC.json
+```
+
+File-level `jscan profile` recovered useful structure immediately:
+
+- `format: jsonl`
+- `container: splunk_preview_result_wrapper`
+- `record_root: $.result`
+- one file had 57,254 records
+- another had 337,110 records
+- useful fields included `ConnectionStatus`, `InternalReason`, `Connector`,
+  `ConnectorIP`, `ClientPublicIP`, `Host`, `Policy`, `ServerSetupTime`,
+  `PolicyProcessingTime`, `ClientZEN`, and `_time`
+
+This is a stronger product signal than generic query speed. The tool can turn a
+garbage filename into a usable schema skeleton for follow-up query generation.
+
+Example skeleton the tool family should be able to emit or support:
+
+```json
+{
+  "schema_kind": "splunk_preview_result_jsonl",
+  "format": "jsonl",
+  "record_root": "$.result",
+  "fields": {
+    "ConnectionStatus": "string",
+    "InternalReason": "string",
+    "Connector": "string | array",
+    "ConnectorIP": "string | array",
+    "ClientPublicIP": "string",
+    "Host": "string",
+    "ServerSetupTime": "string",
+    "PolicyProcessingTime": "string"
+  },
+  "recommended_tools": {
+    "first_pass": "jscan profile",
+    "field_presence": "jg",
+    "jsonl_aggregation": "jaq",
+    "raw_literal": "rg"
+  }
+}
+```
+
+Product implication:
+
+- File-level `profile` is valuable for opaque saved evidence.
+- Directory-level `profile` over a mixed folder gets too blended.
+- The next useful feature is likely `catalog` / `classify`: group files by
+  inferred schema kind and report counts, representative files, record roots,
+  and skeleton fields.
+
+Observed private grouping examples:
+
+- 67 files -> `splunk_preview_result_jsonl`
+- 46 files -> regression test result JSON
+- 8 files -> Argus flow JSON
+- 6 files -> Terraform plan/state JSON
+- 2 files -> HAR browser capture
+
 ### Initial Private Benchmark Report
 
 A second data-adjacent pass ran a small local benchmark against representative

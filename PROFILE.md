@@ -360,7 +360,9 @@ Avoid adding a query language while implementing `profile`.
 
 v1 limitation: directory-wide profile should report per-source container
 summaries, but detailed per-source path/shape breakdown beyond that can be
-deferred.
+deferred. For mixed evidence directories, a separate `catalog` / `classify`
+command should group files by inferred schema kind instead of blending every
+source into one profile.
 
 ## Tests
 

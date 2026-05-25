@@ -41,6 +41,11 @@ Implemented:
 - Repo-local workflow trial harness in [bench/trials.mjs](bench/trials.mjs),
   comparing known-query `jq`, blind jq probes, `jscan profile` plus final query,
   and raw `rg` where meaningful.
+- Private Downloads reconnaissance signal: file-level `profile` can turn opaque
+  timestamp/GUID JSON filenames into useful schema skeletons, especially raw
+  Splunk `{preview,result}` JSONL exports. Directory-level profile is too mixed,
+  suggesting a future `catalog` / `classify` command that groups files by
+  inferred schema kind.
 - Regression tests for malformed input, directory scans, truncation, samples,
   strict mode, stdin-style JSONL, array shapes, auto JSONL fallback, profile
   budgeting, token-aware keywords, and rooted next-tool hints
@@ -168,6 +173,41 @@ Required options:
 - `--json`
 - NDJSON match stream option for large result sets
 - `--explain` for query validation and match reasoning
+
+## Phase 2A: `catalog` / `classify` For Mixed Directories
+
+Private Downloads testing showed that directory-level `profile` gets too mixed
+when a folder contains unrelated JSON evidence. A catalog command should answer:
+
+> What kinds of JSON files are in this folder, and which files share the same
+> schema shape?
+
+Likely command:
+
+```sh
+jscan catalog ~/Downloads --json
+```
+
+Primary output:
+
+- inferred schema kind, such as:
+  - `splunk_preview_result_jsonl`
+  - `paged_list_wrapper`
+  - `root_array_records`
+  - `har_capture`
+  - `terraform_state_or_plan`
+  - `unknown_json`
+- file count
+- total parsed records
+- representative files
+- dominant record root
+- top fields / skeleton fields
+- parse-error count
+- suggested first-pass tool
+
+This should reuse cheap per-file profile/source summaries rather than emitting
+one huge blended profile. It is probably more valuable than broadening `profile`
+for directories.
 
 ## Phase 3: Benchmark Harness
 
