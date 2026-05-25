@@ -227,9 +227,10 @@ Start here:
 
 1. Open [RESEARCH.md](RESEARCH.md).
 2. Read the private overlay agent report section.
-3. Define the contents of `profile --budget 20kb --json`.
-4. Pick 5 to 8 seed tasks matching the observed private workflow shapes.
-5. Write the best competitor command for each task.
-6. Classify each task as Scout, Engine, Both, or Not ours.
-7. Decide the wedge and name.
-8. Then return to Phase 0 foundation work.
+3. Open [PROFILE.md](PROFILE.md).
+4. Review or revise the `profile --budget 20kb --json` contract.
+5. Pick 5 to 8 seed tasks matching the observed private workflow shapes.
+6. Write the best competitor command for each task.
+7. Classify each task as Scout, Engine, Both, or Not ours.
+8. Decide the wedge and name.
+9. Then return to Phase 0 foundation work.
