@@ -299,7 +299,7 @@ function benchmarkTasks(f, t) {
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("field_presence_connection_status", "jg", [t.jg, "-f", "jsonl", "-F", "ConnectionStatus", "--count", "--no-display", f.splunk10k], "JSON-aware field-presence scan", {
+    toolTask("field_presence_connection_status", "jg", [t.jg, "-f", "jsonl", "-F", "ConnectionStatus", "--count", "--no-display", "--porcelain", f.splunk10k], "JSON-aware field-presence scan", {
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),

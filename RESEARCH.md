@@ -361,7 +361,9 @@ version:
 
 - `jg '$.result.ConnectionStatus'` against JSONL exited zero but emitted zero
   bytes. The harness now uses `jg -f jsonl -F ConnectionStatus --count
-  --no-display` for that task and validates the expected answer `10000`.
+  --no-display --porcelain` for that task and validates the expected answer
+  `10000`. `--porcelain` matters because otherwise `jg` may emit human text
+  like `Found matches: 10000` instead of a bare count.
 - `rg -c '"action":"BLOCK"'` counted matching lines, not matches, because the
   ZIA fixture is a single-line JSON array. The harness now uses
   `rg --count-matches` for occurrence-count comparison and validates the

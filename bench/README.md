@@ -50,6 +50,9 @@ Splunk fixture has 10,000 `ConnectionStatus` fields and the synthetic ZIA array
 has 2,000 `BLOCK` actions. If a command exits zero but emits the wrong answer,
 the row is recorded as `status=wrong_answer` instead of `ok`.
 
+For `jg` count-style tasks, the harness uses `--porcelain` so the answer column
+receives a bare count instead of human text such as `Found matches: 10000`.
+
 ## Reading Results
 
 Do not interpret raw speed alone as the product answer.
