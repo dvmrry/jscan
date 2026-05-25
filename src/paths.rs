@@ -32,6 +32,21 @@ pub struct SourceReport {
     pub source: String,
     pub records: usize,
     pub errors: usize,
+    pub format: InputFormat,
+    pub root_kinds: BTreeMap<String, usize>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub top_level_fields: BTreeMap<String, usize>,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub top_level_array_items: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub array_fields: Vec<SourceArrayField>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct SourceArrayField {
+    pub name: String,
+    pub count: usize,
+    pub item_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -93,15 +108,13 @@ pub fn collect_paths(
 
     for input in inputs {
         let label = input_label(input);
+        let format = effective_format(input, input_options.format);
+        let mut source_state = SourceState::new(label, format);
         let before_errors = state.error_count;
-        let records = process_input(&mut state, input, input_options.format);
+        process_input(&mut state, &mut source_state, input);
         let errors = state.error_count - before_errors;
 
-        state.sources.push(SourceReport {
-            source: label,
-            records,
-            errors,
-        });
+        state.sources.push(source_state.finish(errors));
     }
 
     Ok(state.finish())
@@ -109,14 +122,14 @@ pub fn collect_paths(
 
 fn process_input(
     state: &mut CollectorState,
+    source_state: &mut SourceState,
     input: &DiscoveredInput,
-    requested_format: InputFormat,
-) -> usize {
-    let source = input_label(input);
-    match effective_format(input, requested_format) {
-        InputFormat::Json => process_json_document(state, input, &source),
-        InputFormat::Jsonl => process_jsonl_input(state, input, &source),
-        InputFormat::Auto => process_auto_input(state, input, &source),
+) {
+    let source = source_state.source.clone();
+    match source_state.format {
+        InputFormat::Json => process_json_document(state, source_state, input, &source),
+        InputFormat::Jsonl => process_jsonl_input(state, source_state, input, &source),
+        InputFormat::Auto => process_auto_input(state, source_state, input, &source),
     }
 }
 
@@ -129,28 +142,34 @@ fn effective_format(input: &DiscoveredInput, requested_format: InputFormat) -> I
 
 fn process_json_document(
     state: &mut CollectorState,
+    source_state: &mut SourceState,
     input: &DiscoveredInput,
     source: &str,
-) -> usize {
+) {
     let Some(contents) = read_to_string(state, input, source) else {
-        return 0;
+        return;
     };
-    process_json_contents(state, source, &contents)
+    process_json_contents(state, source_state, source, &contents);
 }
 
-fn process_auto_input(state: &mut CollectorState, input: &DiscoveredInput, source: &str) -> usize {
+fn process_auto_input(
+    state: &mut CollectorState,
+    source_state: &mut SourceState,
+    input: &DiscoveredInput,
+    source: &str,
+) {
     let Some(contents) = read_to_string(state, input, source) else {
-        return 0;
+        return;
     };
 
     if contents.trim().is_empty() {
-        return 0;
+        return;
     }
 
     match serde_json::from_str::<Value>(&contents) {
         Ok(value) => {
+            source_state.record(&value);
             visit_value(state, source, 1, Some(1), &mut Vec::new(), &value);
-            1
         }
         Err(error) if looks_line_delimited(&contents) => {
             let buffered = parse_jsonl_buffer(source, &contents, state.max_errors);
@@ -160,10 +179,10 @@ fn process_auto_input(state: &mut CollectorState, input: &DiscoveredInput, sourc
                     line: Some(error.line()),
                     message: error.to_string(),
                 });
-                return 0;
+                return;
             }
 
-            apply_jsonl_buffer(state, source, buffered)
+            apply_jsonl_buffer(state, source_state, source, buffered);
         }
         Err(error) => {
             state.push_error(ScanError {
@@ -171,20 +190,24 @@ fn process_auto_input(state: &mut CollectorState, input: &DiscoveredInput, sourc
                 line: Some(error.line()),
                 message: error.to_string(),
             });
-            0
         }
     }
 }
 
-fn process_json_contents(state: &mut CollectorState, source: &str, contents: &str) -> usize {
+fn process_json_contents(
+    state: &mut CollectorState,
+    source_state: &mut SourceState,
+    source: &str,
+    contents: &str,
+) {
     if contents.trim().is_empty() {
-        return 0;
+        return;
     }
 
     match serde_json::from_str::<Value>(contents) {
         Ok(value) => {
+            source_state.record(&value);
             visit_value(state, source, 1, Some(1), &mut Vec::new(), &value);
-            1
         }
         Err(error) => {
             state.push_error(ScanError {
@@ -192,7 +215,6 @@ fn process_json_contents(state: &mut CollectorState, source: &str, contents: &st
                 line: Some(error.line()),
                 message: error.to_string(),
             });
-            0
         }
     }
 }
@@ -223,21 +245,25 @@ fn read_to_string(
     }
 }
 
-fn process_jsonl_input(state: &mut CollectorState, input: &DiscoveredInput, source: &str) -> usize {
+fn process_jsonl_input(
+    state: &mut CollectorState,
+    source_state: &mut SourceState,
+    input: &DiscoveredInput,
+    source: &str,
+) {
     match input {
         DiscoveredInput::Stdin => {
             let stdin = io::stdin();
-            process_jsonl_reader(state, source, stdin.lock())
+            process_jsonl_reader(state, source_state, source, stdin.lock());
         }
         DiscoveredInput::File(path) => match File::open(path) {
-            Ok(file) => process_jsonl_reader(state, source, BufReader::new(file)),
+            Ok(file) => process_jsonl_reader(state, source_state, source, BufReader::new(file)),
             Err(error) => {
                 state.push_error(ScanError {
                     source: source.to_string(),
                     line: None,
                     message: format!("could not read input: {error}"),
                 });
-                0
             }
         },
     }
@@ -245,9 +271,10 @@ fn process_jsonl_input(state: &mut CollectorState, input: &DiscoveredInput, sour
 
 fn process_jsonl_reader<R: BufRead>(
     state: &mut CollectorState,
+    source_state: &mut SourceState,
     source: &str,
     mut reader: R,
-) -> usize {
+) {
     let mut line = String::new();
     let mut line_number = 0;
     let mut records = 0;
@@ -266,6 +293,7 @@ fn process_jsonl_reader<R: BufRead>(
                 match serde_json::from_str::<Value>(trimmed) {
                     Ok(value) => {
                         records += 1;
+                        source_state.record(&value);
                         visit_value(
                             state,
                             source,
@@ -292,8 +320,6 @@ fn process_jsonl_reader<R: BufRead>(
             }
         }
     }
-
-    records
 }
 
 struct BufferedJsonl {
@@ -344,12 +370,18 @@ fn parse_jsonl_buffer(source: &str, contents: &str, max_errors: usize) -> Buffer
     }
 }
 
-fn apply_jsonl_buffer(state: &mut CollectorState, source: &str, buffered: BufferedJsonl) -> usize {
+fn apply_jsonl_buffer(
+    state: &mut CollectorState,
+    source_state: &mut SourceState,
+    source: &str,
+    buffered: BufferedJsonl,
+) {
     state.push_buffered_errors(buffered.errors, buffered.error_count);
 
     let mut records = 0;
     for record in buffered.records {
         records += 1;
+        source_state.record(&record.value);
         visit_value(
             state,
             source,
@@ -359,8 +391,6 @@ fn apply_jsonl_buffer(state: &mut CollectorState, source: &str, buffered: Buffer
             &record.value,
         );
     }
-
-    records
 }
 
 fn looks_line_delimited(contents: &str) -> bool {
@@ -384,6 +414,85 @@ struct CollectorState {
     max_errors: usize,
     samples_per_path: usize,
     sample_max_chars: usize,
+}
+
+#[derive(Debug)]
+struct SourceState {
+    source: String,
+    format: InputFormat,
+    records: usize,
+    root_kinds: BTreeMap<String, usize>,
+    top_level_fields: BTreeMap<String, usize>,
+    top_level_array_items: usize,
+    array_fields: BTreeMap<String, SourceArrayFieldState>,
+}
+
+#[derive(Debug, Default)]
+struct SourceArrayFieldState {
+    count: usize,
+    item_count: usize,
+}
+
+impl SourceState {
+    fn new(source: String, format: InputFormat) -> Self {
+        Self {
+            source,
+            format,
+            records: 0,
+            root_kinds: BTreeMap::new(),
+            top_level_fields: BTreeMap::new(),
+            top_level_array_items: 0,
+            array_fields: BTreeMap::new(),
+        }
+    }
+
+    fn record(&mut self, value: &Value) {
+        self.records += 1;
+        *self
+            .root_kinds
+            .entry(json_type(value).to_string())
+            .or_insert(0) += 1;
+
+        match value {
+            Value::Object(object) => {
+                for (key, value) in object {
+                    *self.top_level_fields.entry(key.clone()).or_insert(0) += 1;
+                    if let Value::Array(items) = value {
+                        let field = self.array_fields.entry(key.clone()).or_default();
+                        field.count += 1;
+                        field.item_count += items.len();
+                    }
+                }
+            }
+            Value::Array(items) => {
+                self.top_level_array_items += items.len();
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+        }
+    }
+
+    fn finish(self, errors: usize) -> SourceReport {
+        let array_fields = self
+            .array_fields
+            .into_iter()
+            .map(|(name, field)| SourceArrayField {
+                name,
+                count: field.count,
+                item_count: field.item_count,
+            })
+            .collect();
+
+        SourceReport {
+            source: self.source,
+            records: self.records,
+            errors,
+            format: self.format,
+            root_kinds: self.root_kinds,
+            top_level_fields: self.top_level_fields,
+            top_level_array_items: self.top_level_array_items,
+            array_fields,
+        }
+    }
 }
 
 impl CollectorState {
@@ -585,6 +694,10 @@ fn is_simple_key(value: &str) -> bool {
     chars.all(|ch| ch == '_' || ch == '-' || ch.is_ascii_alphanumeric())
 }
 
+fn is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,6 +740,29 @@ mod tests {
             .expect("email path");
         assert_eq!(email.types.get("string"), Some(&1));
         assert_eq!(email.types.get("null"), Some(&1));
+    }
+
+    #[test]
+    fn records_source_top_level_summary() {
+        let report = collect_paths(
+            &[DiscoveredInput::File("tests/fixtures/basic.json".into())],
+            &InputOptions {
+                format: InputFormat::Auto,
+                max_errors: 10,
+            },
+            &PathsOptions {
+                samples_per_path: 0,
+                sample_max_chars: 200,
+            },
+        )
+        .expect("paths");
+        let source = &report.sources[0];
+
+        assert_eq!(source.records, 1);
+        assert_eq!(source.root_kinds.get("object"), Some(&1));
+        assert_eq!(source.top_level_fields.get("users"), Some(&1));
+        assert_eq!(source.array_fields[0].name, "users");
+        assert_eq!(source.array_fields[0].item_count, 2);
     }
 
     #[test]

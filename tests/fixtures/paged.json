@@ -1,0 +1,17 @@
+{
+  "totalPages": 1,
+  "totalCount": 2,
+  "list": [
+    {
+      "id": "app-1",
+      "name": "Private App",
+      "domainNames": ["dev.azure.com"],
+      "enabled": true
+    },
+    {
+      "id": "app-2",
+      "name": "Internal Tool",
+      "enabled": false
+    }
+  ]
+}

@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
-    InputFormat, InputOptions, OutputMode, PathsOptions, ShapeOptions, collect_paths,
-    discover_inputs, infer_shape, write_paths, write_shape,
+    InputFormat, InputOptions, OutputMode, PathsOptions, ProfileOptions, ShapeOptions,
+    build_profile, collect_paths, discover_inputs, infer_shape, write_paths, write_profile,
+    write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -21,6 +22,8 @@ enum Command {
     Paths(PathsCommand),
     /// Infer object fields, optionality, and array item shapes.
     Shape(ShapeCommand),
+    /// Build a bounded reconnaissance profile for agents.
+    Profile(ProfileCommand),
 }
 
 #[derive(Debug, Parser)]
@@ -33,6 +36,16 @@ struct PathsCommand {
 struct ShapeCommand {
     #[command(flatten)]
     scan: ScanArgs,
+}
+
+#[derive(Debug, Parser)]
+struct ProfileCommand {
+    #[command(flatten)]
+    scan: ScanArgs,
+
+    /// Advisory output budget for JSON profile reports, e.g. 20kb or 1mb.
+    #[arg(long, default_value = "20kb")]
+    budget: String,
 }
 
 #[derive(Debug, Args)]
@@ -132,9 +145,67 @@ fn main() -> Result<()> {
                 shape_report.error_count,
             )?;
         }
+        Command::Profile(cmd) => {
+            let output = output_mode(&cmd.scan);
+            let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
+            let samples_per_path = if cmd.scan.samples == 0 {
+                2
+            } else {
+                cmd.scan.samples
+            };
+            let path_report = collect_paths(
+                &inputs,
+                &input_options(&cmd.scan),
+                &PathsOptions {
+                    samples_per_path,
+                    sample_max_chars: cmd.scan.sample_max_chars,
+                },
+            )?;
+            let shape_report = infer_shape(&path_report, &ShapeOptions {})?;
+            let profile_report = build_profile(
+                &path_report,
+                &shape_report,
+                &ProfileOptions {
+                    budget_bytes: parse_byte_size(&cmd.budget)?,
+                },
+            )?;
+
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            write_profile(&mut lock, &profile_report, output)?;
+            lock.flush()?;
+            enforce_strict(
+                cmd.scan.strict,
+                profile_report.partial,
+                profile_report.error_count,
+            )?;
+        }
     }
 
     Ok(())
+}
+
+fn parse_byte_size(value: &str) -> Result<usize> {
+    let trimmed = value.trim();
+    let split_at = trimmed
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(trimmed.len());
+    let (digits, suffix) = trimmed.split_at(split_at);
+    if digits.is_empty() {
+        anyhow::bail!("budget must start with a number");
+    }
+
+    let amount = digits.parse::<usize>()?;
+    let multiplier = match suffix.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1,
+        "k" | "kb" => 1024,
+        "m" | "mb" => 1024 * 1024,
+        other => anyhow::bail!("unsupported budget suffix: {other}"),
+    };
+
+    amount
+        .checked_mul(multiplier)
+        .ok_or_else(|| anyhow::anyhow!("budget is too large"))
 }
 
 fn output_mode(args: &ScanArgs) -> OutputMode {

@@ -177,6 +177,98 @@ fn strict_exits_nonzero_on_partial_scan() {
         .stderr(predicate::str::contains("scan completed with 1 error"));
 }
 
+#[test]
+fn profile_detects_splunk_result_wrapper() {
+    let output = command_json(
+        &[
+            "profile",
+            "tests/fixtures/splunk.jsonl",
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+
+    assert_eq!(output["schema"], "jscan.profile.v1");
+    assert_json_array_contains(&output["containers"], "kind", "jsonl_records");
+    assert_json_array_contains(
+        &output["containers"],
+        "kind",
+        "splunk_preview_result_wrapper",
+    );
+    assert_json_array_contains(&output["record_roots"], "display_path", "$.result");
+    assert_json_array_contains(
+        &output["path_facts"],
+        "display_path",
+        "$.result.ConnectionStatus",
+    );
+    assert_json_array_contains(&output["next_tools"], "tool", "rg");
+}
+
+#[test]
+fn profile_detects_paged_list_wrapper() {
+    let output = command_json(
+        &[
+            "profile",
+            "tests/fixtures/paged.json",
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+
+    assert_json_array_contains(&output["containers"], "kind", "paged_list_wrapper");
+    assert_json_array_contains(&output["record_roots"], "display_path", "$.list[]");
+    assert_json_array_contains(
+        &output["path_facts"],
+        "display_path",
+        "$.list[].domainNames[]",
+    );
+}
+
+#[test]
+fn profile_detects_top_level_array() {
+    let output = command_json(
+        &[
+            "profile",
+            "tests/fixtures/array.json",
+            "--json",
+            "--budget",
+            "20kb",
+        ],
+        None,
+    );
+
+    assert_json_array_contains(&output["containers"], "kind", "root_array");
+    assert_json_array_contains(&output["record_roots"], "display_path", "$[]");
+    assert_json_array_contains(&output["path_facts"], "display_path", "$[].action");
+}
+
+#[test]
+fn profile_budget_is_advisory_and_reports_omissions() {
+    let output = command_json(
+        &[
+            "profile",
+            "tests/fixtures/basic.json",
+            "--json",
+            "--budget",
+            "1kb",
+        ],
+        None,
+    );
+
+    assert_eq!(output["budget"]["requested_bytes"], 1024);
+    assert_eq!(output["budget"]["truncated"], true);
+    assert!(
+        !output["budget"]["omitted"]
+            .as_array()
+            .expect("omitted")
+            .is_empty()
+    );
+}
+
 fn command_json(args: &[&str], stdin: Option<&str>) -> Value {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
     cmd.args(args);
@@ -186,4 +278,12 @@ fn command_json(args: &[&str], stdin: Option<&str>) -> Value {
 
     let output = cmd.assert().success().get_output().stdout.clone();
     serde_json::from_slice(&output).expect("json output")
+}
+
+fn assert_json_array_contains(array: &Value, key: &str, expected: &str) {
+    let values = array.as_array().expect("json array");
+    assert!(
+        values.iter().any(|value| value[key] == expected),
+        "expected array to contain {key}={expected}, got {values:#?}"
+    );
 }

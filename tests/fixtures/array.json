@@ -1,0 +1,12 @@
+[
+  {
+    "action": "BLOCK",
+    "user": "a@example.test",
+    "url": "https://blocked.example.test"
+  },
+  {
+    "action": "ALLOW",
+    "user": "b@example.test",
+    "url": "https://allowed.example.test"
+  }
+]

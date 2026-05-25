@@ -1,0 +1,2 @@
+{"preview":false,"result":{"Host":"edge-1","ConnectionStatus":"close","domainNames":["dev.azure.com","example.test"],"action":"ALLOW"}}
+{"preview":false,"result":{"Host":"edge-2","ConnectionStatus":"timeout","domainNames":["contoso.test"],"action":"BLOCK"}}
