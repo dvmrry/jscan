@@ -340,10 +340,12 @@ function benchmarkTasks(f, t) {
     jscanTask("paths_noisy_dir", [t.jscan, "paths", f.noisy, "--json"], "partial scan with malformed JSON"),
 
     toolTask("count_splunk_records", "jq", [t.jq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records", {
+      contract: "record_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("count_splunk_records", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; . + 1)", f.splunk10k], "structural count of JSONL records", {
+      contract: "record_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
@@ -352,19 +354,23 @@ function benchmarkTasks(f, t) {
       answerFrom: stdoutAnswer,
     }),
     toolTask("count_splunk_records", "jt", [t.jt, f.splunk10k, "count"], "jsont JSONL record count", {
+      contract: "record_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("count_splunk_records", "duckdb", [t.duckdb, "-csv", "-noheader", "-c", `select count(*) from read_json_auto('${sqlString(f.splunk10k)}')`], "DuckDB known-shape JSONL count", {
+      contract: "record_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
 
     toolTask("field_presence_connection_status", "jq", [t.jq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count", {
+      contract: "field_presence_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("field_presence_connection_status", "jaq", [t.jaq, "-n", "reduce inputs as $row (0; if $row.result.ConnectionStatus? != null then . + 1 else . end)", f.splunk10k], "structural field-presence count", {
+      contract: "field_presence_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
@@ -373,6 +379,7 @@ function benchmarkTasks(f, t) {
       answerFrom: stdoutAnswer,
     }),
     toolTask("field_presence_connection_status", "jg", [t.jg, "-f", "jsonl", "-F", "ConnectionStatus", "--count", "--no-display", "--porcelain", f.splunk10k], "JSON-aware field-presence scan", {
+      contract: "field_presence_count",
       expectedAnswer: "10000",
       answerFrom: stdoutAnswer,
     }),
@@ -386,14 +393,17 @@ function benchmarkTasks(f, t) {
     }),
 
     jscanTask("grep_combined_splunk", [t.jscan, "grep", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--count"], "one-pass multi-predicate structural count", {
+      contract: "record_match_count",
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_combined_splunk", "jq", [t.jq, "-n", splunkCombinedPredicate, f.splunk10k], "single jq query with equivalent combined predicates", {
+      contract: "record_match_count",
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_combined_splunk", "jaq", [t.jaq, "-n", splunkCombinedPredicate, f.splunk10k], "single jaq query with equivalent combined predicates", {
+      contract: "record_match_count",
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
@@ -407,36 +417,44 @@ function benchmarkTasks(f, t) {
     }),
 
     jscanTask("grep_array_object_sku", [t.jscan, "grep", f.orders10k, "--some-eq", "$.items", "$.sku", "ABC", "--count"], "one-pass array-of-object item predicate", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_array_object_sku", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jq array-of-object item predicate", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_array_object_sku", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jaq array-of-object item predicate", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
 
     jscanTask("grep_array_object_same_item", [t.jscan, "grep", f.orders10k, "--some", "$.items", "sku=ABC,qty=1", "--count"], "one-pass same-array-item multi-field predicate", {
+      contract: "record_match_count",
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_array_object_same_item", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jq same-array-item multi-field predicate", {
+      contract: "record_match_count",
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
     toolTask("grep_array_object_same_item", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jaq same-array-item multi-field predicate", {
+      contract: "record_match_count",
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
 
     toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
     toolTask("filter_zia_block", "jaq", [t.jaq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
@@ -445,14 +463,19 @@ function benchmarkTasks(f, t) {
       answerFrom: stdoutAnswer,
     }),
     toolTask("filter_zia_block", "duckdb", [t.duckdb, "-csv", "-noheader", "-c", `select count(*) from read_json_auto('${sqlString(f.zia10k)}') where action = 'BLOCK'`], "DuckDB known-shape value predicate over array JSON", {
+      contract: "record_match_count",
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
 
     toolTask("path_inventory_splunk", "jq", [t.jq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jq path inventory baseline", {
+      contract: "distinct_path_count",
+      expectedAnswer: "15",
       answerFrom: stdoutAnswer,
     }),
     toolTask("path_inventory_splunk", "jaq", [t.jaq, "-n", "reduce inputs as $row ({}; reduce ($row | paths) as $p (. ; .[$p | map(tostring) | join(\".\")] = true)) | length", f.splunk10k], "jaq path inventory baseline", {
+      contract: "distinct_path_count",
+      expectedAnswer: "15",
       answerFrom: stdoutAnswer,
     }),
     jscanTask("path_inventory_splunk", [t.jscan, "paths", f.splunk10k, "--json"], "jscan native path/type inventory", {
@@ -491,6 +514,7 @@ function jscanTask(task, command, note, extra = {}) {
     tool: "jscan",
     command,
     semantic: "json_structural",
+    contract: extra.contract ?? `${task}:jscan`,
     note,
     ...extra,
   };
@@ -502,6 +526,7 @@ function toolTask(task, tool, command, note, extra = {}) {
     tool,
     command,
     semantic: tool === "rg" ? "raw_text" : "json_structural",
+    contract: extra.contract ?? `${task}:${tool}`,
     note,
     ...extra,
   };
@@ -561,6 +586,7 @@ function runBenchmark(task, opts) {
     stdout_sha256: stdoutSha256,
     answer: lastAnswer?.error ? `error:${lastAnswer.error}` : (lastAnswer?.value ?? ""),
     expected_answer: task.expectedAnswer ?? "",
+    contract: task.contract,
     category: "",
     command: commandDisplay(task.command),
     note: task.note,
@@ -642,6 +668,7 @@ function missingRow(task) {
     stdout_sha256: "",
     answer: "",
     expected_answer: task.expectedAnswer ?? "",
+    contract: task.contract,
     category: "",
     command: commandDisplay(task.command),
     note: task.note,
@@ -666,14 +693,39 @@ function annotateCategories(rows) {
   }
 
   for (const group of groups.values()) {
-    const comparable = group.filter(
-      (row) => row.category !== "missing_optional_tool" && row.category !== "expected_failure",
-    );
-    const category = comparable.length <= 1 ? "solo_coverage" : "fair_competitor_race";
+    const comparable = group.filter((row) => row.category === "");
+    if (comparable.length <= 1) {
+      for (const row of comparable) {
+        row.category = "solo_coverage";
+      }
+      continue;
+    }
+
+    const contractGroups = new Map();
     for (const row of comparable) {
-      row.category = category;
+      if (!contractGroups.has(row.contract)) {
+        contractGroups.set(row.contract, []);
+      }
+      contractGroups.get(row.contract).push(row);
+    }
+
+    for (const contractGroup of contractGroups.values()) {
+      const category = isFairRace(contractGroup)
+        ? "fair_competitor_race"
+        : "contract_or_answer_mismatch";
+      for (const row of contractGroup) {
+        row.category = category;
+      }
     }
   }
+}
+
+function isFairRace(rows) {
+  if (rows.length < 2 || rows.some((row) => row.status !== "ok" || !row.answer)) {
+    return false;
+  }
+
+  return new Set(rows.map((row) => row.answer)).size === 1;
 }
 
 function median(values) {
@@ -705,6 +757,7 @@ function writeCsv(path, rows) {
     "task",
     "tool",
     "category",
+    "contract",
     "semantic",
     "status",
     "runs",
@@ -736,6 +789,7 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
     .join("\n");
   const categoryRows = [
     ["fair_competitor_race", "Fair competitor races"],
+    ["contract_or_answer_mismatch", "Contract or answer mismatch rows"],
     ["solo_coverage", "Solo coverage rows"],
     ["expected_failure", "Expected failure rows"],
     ["missing_optional_tool", "Missing optional tools"],
@@ -744,6 +798,7 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
     .join("\n");
   const resultSections = [
     ["fair_competitor_race", "Fair Competitor Races"],
+    ["contract_or_answer_mismatch", "Contract Or Answer Mismatch Rows"],
     ["solo_coverage", "Solo Coverage Rows"],
     ["expected_failure", "Expected Failure Rows"],
     ["missing_optional_tool", "Missing Optional Tools"],
@@ -798,14 +853,14 @@ No rows.`;
   const resultRows = rows
     .map(
       (row) =>
-        `| ${row.task} | ${row.tool} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.answer)} | ${escapeMd(row.expected_answer)} | ${escapeMd(row.note)} |`,
+        `| ${row.task} | ${row.tool} | ${escapeMd(row.contract)} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.answer)} | ${escapeMd(row.expected_answer)} | ${escapeMd(row.note)} |`,
     )
     .join("\n");
 
   return `### ${title}
 
-| Task | Tool | Semantic | Status | Runs | Median ms | Stdout bytes | Answer | Expected | Note |
-| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| Task | Tool | Contract | Semantic | Status | Runs | Median ms | Stdout bytes | Answer | Expected | Note |
+| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
 ${resultRows}
 `;
 }

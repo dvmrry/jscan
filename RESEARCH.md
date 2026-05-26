@@ -772,9 +772,12 @@ The fair question is which tool produces the needed artifact fastest and with
 the least agent follow-up.
 
 The benchmark report now separates scorecard rows into fair competitor races,
-solo coverage rows, expected failures, and missing optional tools. This keeps
-fixture coverage and optional-tool availability visible without making the
-competitive table look better or worse than it is.
+contract/answer mismatches, solo coverage rows, expected failures, and missing
+optional tools. A row is only a fair competitor race when at least two
+successful rows for the same task declare the same output contract and produce
+the same validated non-empty answer. Rows for the same task that compare a raw
+text count, a rich report, a field list, or an unvalidated schema/flattened
+artifact are kept out of the fair bucket.
 
 Follow-up tests:
 

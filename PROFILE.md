@@ -67,6 +67,9 @@ Initial option:
 `--budget` is meaningful for `--json` output. v1 should use deterministic
 top-N limits and section dropping, and estimate the pretty JSON bytes the CLI
 actually emits, including the trailing newline.
+Consumers should size context from `budget.estimated_bytes`, not
+`budget.requested_bytes`. When `budget.minimum_bytes_exceeded` is true, the
+emitted report is valid JSON but larger than the requested budget.
 
 Budgeting rules:
 
