@@ -258,8 +258,9 @@ jscan shape <input> --json
 ```
 
 Suggestions should be clearly labeled as commands, not authoritative queries.
-Do not suggest `find` until that command exists. Command text should use the
-resolved binary name once naming is settled.
+Suggest `grep` for bounded structural record probes after `profile` has detected
+a useful record root or observed path. Command text should use the resolved
+binary name once naming is settled.
 
 ### Suggested Next Tools
 

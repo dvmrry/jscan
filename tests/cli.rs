@@ -48,10 +48,10 @@ fn paths_plain_conflicts_with_json_output() {
 }
 
 #[test]
-fn find_counts_multiple_predicates_in_one_pass() {
+fn grep_counts_multiple_predicates_in_one_pass() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("tests/fixtures/splunk.jsonl")
         .arg("--has")
         .arg("$.result.Host")
@@ -68,10 +68,10 @@ fn find_counts_multiple_predicates_in_one_pass() {
 }
 
 #[test]
-fn find_any_mode_matches_if_one_predicate_matches() {
+fn grep_any_mode_matches_if_one_predicate_matches() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("tests/fixtures/splunk.jsonl")
         .arg("--any")
         .arg("--eq")
@@ -87,10 +87,10 @@ fn find_any_mode_matches_if_one_predicate_matches() {
 }
 
 #[test]
-fn find_json_reports_per_predicate_counts() {
+fn grep_json_reports_per_predicate_counts() {
     let output = command_json(
         &[
-            "find",
+            "grep",
             "tests/fixtures/splunk.jsonl",
             "--has",
             "$.result.Host",
@@ -104,7 +104,8 @@ fn find_json_reports_per_predicate_counts() {
         None,
     );
 
-    assert_eq!(output["schema"], "jscan.find.v1");
+    assert_eq!(output["schema"], "jscan.grep.v1");
+    assert_eq!(output["match_value"], "full_record");
     assert_eq!(output["scanned_records"], 2);
     assert_eq!(output["matched_records"], 1);
     assert_eq!(output["predicates"][0]["matched_records"], 2);
@@ -113,10 +114,34 @@ fn find_json_reports_per_predicate_counts() {
 }
 
 #[test]
-fn find_record_root_treats_nested_values_as_records() {
+fn grep_json_reports_projected_match_value_mode() {
+    let output = command_json(
+        &[
+            "grep",
+            "tests/fixtures/splunk.jsonl",
+            "--eq",
+            "$.result.ConnectionStatus",
+            "timeout",
+            "--show",
+            "$.result.Host",
+            "--json",
+            "--limit",
+            "1",
+        ],
+        None,
+    );
+
+    assert_eq!(output["schema"], "jscan.grep.v1");
+    assert_eq!(output["match_value"], "projected_path");
+    assert_eq!(output["matches"][0]["path"], "$.result.Host");
+    assert_eq!(output["matches"][0]["value"], "edge-2");
+}
+
+#[test]
+fn grep_record_root_treats_nested_values_as_records() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("--record-root")
         .arg("$.list[]")
         .arg("--has")
@@ -129,10 +154,10 @@ fn find_record_root_treats_nested_values_as_records() {
 }
 
 #[test]
-fn find_some_eq_matches_array_object_items() {
+fn grep_some_eq_matches_array_object_items() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("--some-eq")
         .arg("$.items")
         .arg("$.sku")
@@ -148,10 +173,10 @@ fn find_some_eq_matches_array_object_items() {
 }
 
 #[test]
-fn find_some_conjoins_constraints_on_same_array_item() {
+fn grep_some_conjoins_constraints_on_same_array_item() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("--some")
         .arg("$.events")
         .arg("action=blocked,user=alice")
@@ -166,10 +191,10 @@ fn find_some_conjoins_constraints_on_same_array_item() {
 }
 
 #[test]
-fn find_some_supports_same_item_presence_constraints() {
+fn grep_some_supports_same_item_presence_constraints() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("--some")
         .arg("$.users")
         .arg("id,name,email")
@@ -184,10 +209,10 @@ fn find_some_supports_same_item_presence_constraints() {
 }
 
 #[test]
-fn find_show_projects_value_with_source_line_metadata() {
+fn grep_show_projects_value_with_source_line_metadata() {
     let stdout = command_stdout(
         &[
-            "find",
+            "grep",
             "tests/fixtures/splunk.jsonl",
             "--eq",
             "$.result.ConnectionStatus",
@@ -209,16 +234,16 @@ fn find_show_projects_value_with_source_line_metadata() {
 }
 
 #[test]
-fn find_requires_at_least_one_predicate() {
+fn grep_requires_at_least_one_predicate() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
-    cmd.arg("find")
+    cmd.arg("grep")
         .arg("tests/fixtures/splunk.jsonl")
         .arg("--count")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "find requires at least one predicate",
+            "grep requires at least one predicate",
         ));
 }
 
@@ -405,7 +430,7 @@ fn profile_detects_splunk_result_wrapper() {
         "display_path",
         "$.result.ConnectionStatus",
     );
-    assert_json_array_contains(&output["next_tools"], "tool", "jscan find");
+    assert_json_array_contains(&output["next_tools"], "tool", "jscan grep");
     assert_json_array_contains(&output["next_tools"], "tool", "rg");
     assert_json_array_contains(&output["next_tools"], "command", "jaq -c '.result' <input>");
 }
@@ -445,8 +470,8 @@ fn profile_detects_paged_list_wrapper() {
             .expect("next_tools")
             .iter()
             .any(|tool| tool["command"]
-                == "jscan find <input> --record-root '$.list[]' --has '$.domainNames[]' --json --limit 0"),
-        "expected a jscan find hint to use the record root and a selective path"
+                == "jscan grep <input> --record-root '$.list[]' --has '$.domainNames[]' --json --limit 0"),
+        "expected a jscan grep hint to use the record root and a selective path"
     );
 }
 
@@ -721,9 +746,9 @@ fn profile_keyword_signals_are_token_aware() {
         ),
     );
 
-    let description = find_path_fact(&output, "$.description");
-    let api_protection = find_path_fact(&output, "$.apiProtectionEnabled");
-    let source_ip = find_path_fact(&output, "$.sourceIp");
+    let description = grep_path_fact(&output, "$.description");
+    let api_protection = grep_path_fact(&output, "$.apiProtectionEnabled");
+    let source_ip = grep_path_fact(&output, "$.sourceIp");
 
     assert!(!json_strings(&description["signals"]).contains(&"keyword:ip".to_string()));
     assert!(!json_strings(&api_protection["signals"]).contains(&"keyword:ip".to_string()));
@@ -754,7 +779,7 @@ fn assert_json_array_contains(array: &Value, key: &str, expected: &str) {
     );
 }
 
-fn find_path_fact(output: &Value, path: &str) -> Value {
+fn grep_path_fact(output: &Value, path: &str) -> Value {
     output["path_facts"]
         .as_array()
         .expect("path_facts")

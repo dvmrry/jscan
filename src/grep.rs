@@ -8,11 +8,11 @@ use serde_json::Value;
 use crate::input::{DiscoveredInput, InputFormat, InputOptions, input_label, is_jsonl_candidate};
 use crate::paths::ScanError;
 
-const REPORT_SCHEMA: &str = "jscan.find.v1";
+const REPORT_SCHEMA: &str = "jscan.grep.v1";
 
 #[derive(Clone, Debug)]
-pub struct FindOptions {
-    pub predicates: Vec<FindPredicate>,
+pub struct GrepOptions {
+    pub predicates: Vec<GrepPredicate>,
     pub mode: MatchMode,
     pub record_root: Option<PathExpr>,
     pub show_path: Option<PathExpr>,
@@ -20,7 +20,7 @@ pub struct FindOptions {
 }
 
 #[derive(Clone, Debug)]
-pub enum FindPredicate {
+pub enum GrepPredicate {
     Has(PathExpr),
     Missing(PathExpr),
     Eq {
@@ -42,12 +42,12 @@ pub enum FindPredicate {
     },
     Some {
         path: PathExpr,
-        constraints: Vec<FindSomeConstraint>,
+        constraints: Vec<GrepSomeConstraint>,
     },
 }
 
 #[derive(Clone, Debug)]
-pub enum FindSomeConstraint {
+pub enum GrepSomeConstraint {
     Has(PathExpr),
     Eq { path: PathExpr, value: String },
 }
@@ -71,27 +71,35 @@ enum PathSegment {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct FindReport {
+pub struct GrepReport {
     pub schema: &'static str,
+    pub match_value: GrepMatchValue,
     pub partial: bool,
     pub error_count: usize,
     pub errors_truncated: bool,
     pub scanned_records: usize,
     pub matched_records: usize,
-    pub predicates: Vec<FindPredicateReport>,
+    pub predicates: Vec<GrepPredicateReport>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub matches: Vec<FindMatch>,
+    pub matches: Vec<GrepMatch>,
     pub errors: Vec<ScanError>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrepMatchValue {
+    FullRecord,
+    ProjectedPath,
+}
+
 #[derive(Clone, Debug, Serialize)]
-pub struct FindPredicateReport {
+pub struct GrepPredicateReport {
     pub predicate: String,
     pub matched_records: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct FindMatch {
+pub struct GrepMatch {
     pub source: String,
     pub record: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,14 +111,14 @@ pub struct FindMatch {
     pub value: Value,
 }
 
-struct FindState<'a> {
-    predicates: &'a [FindPredicate],
+struct GrepState<'a> {
+    predicates: &'a [GrepPredicate],
     mode: MatchMode,
     record_root: Option<&'a PathExpr>,
     show_path: Option<&'a PathExpr>,
     match_limit: usize,
     predicate_matches: Vec<usize>,
-    matches: Vec<FindMatch>,
+    matches: Vec<GrepMatch>,
     scanned_records: usize,
     matched_records: usize,
     errors: Vec<ScanError>,
@@ -195,12 +203,12 @@ pub fn parse_path_expr(input: &str) -> Result<PathExpr> {
     })
 }
 
-pub fn collect_find(
+pub fn collect_grep(
     inputs: &[DiscoveredInput],
     input_options: &InputOptions,
-    options: &FindOptions,
-) -> Result<FindReport> {
-    let mut state = FindState {
+    options: &GrepOptions,
+) -> Result<GrepReport> {
+    let mut state = GrepState {
         predicates: &options.predicates,
         mode: options.mode,
         record_root: options.record_root.as_ref(),
@@ -232,7 +240,7 @@ fn effective_format(input: &DiscoveredInput, requested_format: InputFormat) -> I
 }
 
 fn process_input(
-    state: &mut FindState<'_>,
+    state: &mut GrepState<'_>,
     input: &DiscoveredInput,
     source: &str,
     format: InputFormat,
@@ -244,14 +252,14 @@ fn process_input(
     }
 }
 
-fn process_json_document(state: &mut FindState<'_>, input: &DiscoveredInput, source: &str) {
+fn process_json_document(state: &mut GrepState<'_>, input: &DiscoveredInput, source: &str) {
     let Some(contents) = read_to_string(state, input, source) else {
         return;
     };
     process_json_contents(state, source, &contents);
 }
 
-fn process_auto_input(state: &mut FindState<'_>, input: &DiscoveredInput, source: &str) {
+fn process_auto_input(state: &mut GrepState<'_>, input: &DiscoveredInput, source: &str) {
     let Some(contents) = read_to_string(state, input, source) else {
         return;
     };
@@ -282,7 +290,7 @@ fn process_auto_input(state: &mut FindState<'_>, input: &DiscoveredInput, source
     }
 }
 
-fn process_json_contents(state: &mut FindState<'_>, source: &str, contents: &str) {
+fn process_json_contents(state: &mut GrepState<'_>, source: &str, contents: &str) {
     if contents.trim().is_empty() {
         return;
     }
@@ -300,7 +308,7 @@ fn process_json_contents(state: &mut FindState<'_>, source: &str, contents: &str
 }
 
 fn read_to_string(
-    state: &mut FindState<'_>,
+    state: &mut GrepState<'_>,
     input: &DiscoveredInput,
     source: &str,
 ) -> Option<String> {
@@ -325,7 +333,7 @@ fn read_to_string(
     }
 }
 
-fn process_jsonl_input(state: &mut FindState<'_>, input: &DiscoveredInput, source: &str) {
+fn process_jsonl_input(state: &mut GrepState<'_>, input: &DiscoveredInput, source: &str) {
     match input {
         DiscoveredInput::Stdin => {
             let stdin = io::stdin();
@@ -344,7 +352,7 @@ fn process_jsonl_input(state: &mut FindState<'_>, input: &DiscoveredInput, sourc
     }
 }
 
-fn process_jsonl_reader<R: BufRead>(state: &mut FindState<'_>, source: &str, mut reader: R) {
+fn process_jsonl_reader<R: BufRead>(state: &mut GrepState<'_>, source: &str, mut reader: R) {
     let mut line = String::new();
     let mut line_number = 0;
 
@@ -382,7 +390,7 @@ fn process_jsonl_reader<R: BufRead>(state: &mut FindState<'_>, source: &str, mut
     }
 }
 
-fn process_jsonl_contents(state: &mut FindState<'_>, source: &str, contents: &str) -> usize {
+fn process_jsonl_contents(state: &mut GrepState<'_>, source: &str, contents: &str) -> usize {
     let mut records = 0;
 
     for (line_index, line) in contents.lines().enumerate() {
@@ -409,7 +417,7 @@ fn process_jsonl_contents(state: &mut FindState<'_>, source: &str, contents: &st
 }
 
 fn process_document_value(
-    state: &mut FindState<'_>,
+    state: &mut GrepState<'_>,
     source: &str,
     line: Option<usize>,
     value: &Value,
@@ -429,7 +437,7 @@ fn process_document_value(
 }
 
 fn process_record_rooted_value(
-    state: &mut FindState<'_>,
+    state: &mut GrepState<'_>,
     source: &str,
     line: Option<usize>,
     value: &Value,
@@ -463,7 +471,7 @@ fn looks_line_delimited(contents: &str) -> bool {
     false
 }
 
-impl FindState<'_> {
+impl GrepState<'_> {
     fn scan_record(&mut self, source: &str, line: Option<usize>, value: &Value) {
         self.scanned_records += 1;
         let record = self.scanned_records;
@@ -499,7 +507,7 @@ impl FindState<'_> {
             let mut values = Vec::new();
             values_at_path(value, &show_path.segments, &mut values);
             if values.is_empty() {
-                self.matches.push(FindMatch {
+                self.matches.push(GrepMatch {
                     source: source.to_string(),
                     record,
                     line,
@@ -514,7 +522,7 @@ impl FindState<'_> {
                 if self.matches.len() >= self.match_limit {
                     return;
                 }
-                self.matches.push(FindMatch {
+                self.matches.push(GrepMatch {
                     source: source.to_string(),
                     record,
                     line,
@@ -526,7 +534,7 @@ impl FindState<'_> {
             return;
         }
 
-        self.matches.push(FindMatch {
+        self.matches.push(GrepMatch {
             source: source.to_string(),
             record,
             line,
@@ -536,19 +544,24 @@ impl FindState<'_> {
         });
     }
 
-    fn finish(self) -> FindReport {
+    fn finish(self) -> GrepReport {
         let predicates = self
             .predicates
             .iter()
             .zip(self.predicate_matches)
-            .map(|(predicate, matched_records)| FindPredicateReport {
+            .map(|(predicate, matched_records)| GrepPredicateReport {
                 predicate: predicate.display(),
                 matched_records,
             })
             .collect();
 
-        FindReport {
+        GrepReport {
             schema: REPORT_SCHEMA,
+            match_value: if self.show_path.is_some() {
+                GrepMatchValue::ProjectedPath
+            } else {
+                GrepMatchValue::FullRecord
+            },
             partial: self.error_count > 0,
             error_count: self.error_count,
             errors_truncated: self.error_count > self.errors.len(),
@@ -568,39 +581,39 @@ impl FindState<'_> {
     }
 }
 
-impl FindPredicate {
+impl GrepPredicate {
     fn matches(&self, value: &Value) -> bool {
         let mut values = Vec::new();
         match self {
-            FindPredicate::Has(path) => {
+            GrepPredicate::Has(path) => {
                 values_at_path(value, &path.segments, &mut values);
                 !values.is_empty()
             }
-            FindPredicate::Missing(path) => {
+            GrepPredicate::Missing(path) => {
                 values_at_path(value, &path.segments, &mut values);
                 values.is_empty()
             }
-            FindPredicate::Eq {
+            GrepPredicate::Eq {
                 path,
                 value: expected,
             } => {
                 values_at_path(value, &path.segments, &mut values);
                 values.iter().any(|value| value_equals(value, expected))
             }
-            FindPredicate::Contains {
+            GrepPredicate::Contains {
                 path,
                 value: expected,
             } => {
                 values_at_path(value, &path.segments, &mut values);
                 values.iter().any(|value| value_contains(value, expected))
             }
-            FindPredicate::SomeHas { path, item_path } => {
+            GrepPredicate::SomeHas { path, item_path } => {
                 values_at_path(value, &path.segments, &mut values);
                 values
                     .iter()
                     .any(|value| array_some(value, item_path, None))
             }
-            FindPredicate::SomeEq {
+            GrepPredicate::SomeEq {
                 path,
                 item_path,
                 value: expected,
@@ -610,7 +623,7 @@ impl FindPredicate {
                     .iter()
                     .any(|value| array_some(value, item_path, Some(expected)))
             }
-            FindPredicate::Some { path, constraints } => {
+            GrepPredicate::Some { path, constraints } => {
                 values_at_path(value, &path.segments, &mut values);
                 values
                     .iter()
@@ -621,24 +634,24 @@ impl FindPredicate {
 
     fn display(&self) -> String {
         match self {
-            FindPredicate::Has(path) => format!("has {}", path.raw),
-            FindPredicate::Missing(path) => format!("missing {}", path.raw),
-            FindPredicate::Eq { path, value } => format!("eq {} {}", path.raw, value),
-            FindPredicate::Contains { path, value } => {
+            GrepPredicate::Has(path) => format!("has {}", path.raw),
+            GrepPredicate::Missing(path) => format!("missing {}", path.raw),
+            GrepPredicate::Eq { path, value } => format!("eq {} {}", path.raw, value),
+            GrepPredicate::Contains { path, value } => {
                 format!("contains {} {}", path.raw, value)
             }
-            FindPredicate::SomeHas { path, item_path } => {
+            GrepPredicate::SomeHas { path, item_path } => {
                 format!("some-has {} {}", path.raw, item_path.raw)
             }
-            FindPredicate::SomeEq {
+            GrepPredicate::SomeEq {
                 path,
                 item_path,
                 value,
             } => format!("some-eq {} {} {}", path.raw, item_path.raw, value),
-            FindPredicate::Some { path, constraints } => {
+            GrepPredicate::Some { path, constraints } => {
                 let constraints = constraints
                     .iter()
-                    .map(FindSomeConstraint::display)
+                    .map(GrepSomeConstraint::display)
                     .collect::<Vec<_>>()
                     .join(",");
                 format!("some {} {}", path.raw, constraints)
@@ -647,15 +660,15 @@ impl FindPredicate {
     }
 }
 
-impl FindSomeConstraint {
+impl GrepSomeConstraint {
     fn matches(&self, value: &Value) -> bool {
         let mut values = Vec::new();
         match self {
-            FindSomeConstraint::Has(path) => {
+            GrepSomeConstraint::Has(path) => {
                 values_at_path(value, &path.segments, &mut values);
                 !values.is_empty()
             }
-            FindSomeConstraint::Eq {
+            GrepSomeConstraint::Eq {
                 path,
                 value: expected,
             } => {
@@ -667,8 +680,8 @@ impl FindSomeConstraint {
 
     fn display(&self) -> String {
         match self {
-            FindSomeConstraint::Has(path) => path.raw.clone(),
-            FindSomeConstraint::Eq { path, value } => format!("{}={}", path.raw, value),
+            GrepSomeConstraint::Has(path) => path.raw.clone(),
+            GrepSomeConstraint::Eq { path, value } => format!("{}={}", path.raw, value),
         }
     }
 }
@@ -730,7 +743,7 @@ fn array_some(value: &Value, item_path: &PathExpr, expected: Option<&str>) -> bo
     })
 }
 
-fn array_some_all(value: &Value, constraints: &[FindSomeConstraint]) -> bool {
+fn array_some_all(value: &Value, constraints: &[GrepSomeConstraint]) -> bool {
     let Value::Array(items) = value else {
         return false;
     };
@@ -761,7 +774,7 @@ mod tests {
                 "domainNames": ["dev.azure.com", "example.test"]
             }
         });
-        let predicate = FindPredicate::Contains {
+        let predicate = GrepPredicate::Contains {
             path: parse_path_expr("$.result.domainNames").expect("path"),
             value: "dev.azure.com".to_string(),
         };
@@ -785,7 +798,7 @@ mod tests {
                 {"sku": "ABC", "nested": {"id": 1}}
             ]
         });
-        let predicate = FindPredicate::SomeEq {
+        let predicate = GrepPredicate::SomeEq {
             path: parse_path_expr("$.items").expect("array path"),
             item_path: parse_path_expr("$.sku").expect("item path"),
             value: "ABC".to_string(),
@@ -802,14 +815,14 @@ mod tests {
                 {"action": "allowed", "user": "alice"}
             ]
         });
-        let predicate = FindPredicate::Some {
+        let predicate = GrepPredicate::Some {
             path: parse_path_expr("$.events").expect("array path"),
             constraints: vec![
-                FindSomeConstraint::Eq {
+                GrepSomeConstraint::Eq {
                     path: parse_path_expr("action").expect("action path"),
                     value: "blocked".to_string(),
                 },
-                FindSomeConstraint::Eq {
+                GrepSomeConstraint::Eq {
                     path: parse_path_expr("user").expect("user path"),
                     value: "alice".to_string(),
                 },

@@ -384,49 +384,49 @@ function benchmarkTasks(f, t) {
       answerFrom: stdoutIncludesAnswer(".result.ConnectionStatus"),
     }),
 
-    jscanTask("find_combined_splunk", [t.jscan, "find", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--count"], "one-pass multi-predicate structural count", {
+    jscanTask("grep_combined_splunk", [t.jscan, "grep", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--count"], "one-pass multi-predicate structural count", {
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_combined_splunk", "jq", [t.jq, "-n", splunkCombinedPredicate, f.splunk10k], "single jq query with equivalent combined predicates", {
+    toolTask("grep_combined_splunk", "jq", [t.jq, "-n", splunkCombinedPredicate, f.splunk10k], "single jq query with equivalent combined predicates", {
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_combined_splunk", "jaq", [t.jaq, "-n", splunkCombinedPredicate, f.splunk10k], "single jaq query with equivalent combined predicates", {
+    toolTask("grep_combined_splunk", "jaq", [t.jaq, "-n", splunkCombinedPredicate, f.splunk10k], "single jaq query with equivalent combined predicates", {
       expectedAnswer: "227",
       answerFrom: stdoutAnswer,
     }),
-    jscanTask("multi_probe_counts_splunk", [t.jscan, "find", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--json", "--limit", "0"], "one-pass independent counts for three structural probes", {
+    jscanTask("multi_probe_counts_splunk", [t.jscan, "grep", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--json", "--limit", "0"], "one-pass independent counts for three structural probes", {
       expectedAnswer: "10000,2500,910",
-      answerFrom: findPredicateCountsAnswer,
+      answerFrom: grepPredicateCountsAnswer,
     }),
     toolTask("multi_probe_counts_splunk", "jqx3", splunkRepeatedProbeCounts, "three separate jq probe counts over the same file", {
       expectedAnswer: "10000,2500,910",
       answerFrom: stdoutAnswer,
     }),
 
-    jscanTask("find_array_object_sku", [t.jscan, "find", f.orders10k, "--some-eq", "$.items", "$.sku", "ABC", "--count"], "one-pass array-of-object item predicate", {
+    jscanTask("grep_array_object_sku", [t.jscan, "grep", f.orders10k, "--some-eq", "$.items", "$.sku", "ABC", "--count"], "one-pass array-of-object item predicate", {
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_array_object_sku", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jq array-of-object item predicate", {
+    toolTask("grep_array_object_sku", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jq array-of-object item predicate", {
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_array_object_sku", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jaq array-of-object item predicate", {
+    toolTask("grep_array_object_sku", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jaq array-of-object item predicate", {
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
 
-    jscanTask("find_array_object_same_item", [t.jscan, "find", f.orders10k, "--some", "$.items", "sku=ABC,qty=1", "--count"], "one-pass same-array-item multi-field predicate", {
+    jscanTask("grep_array_object_same_item", [t.jscan, "grep", f.orders10k, "--some", "$.items", "sku=ABC,qty=1", "--count"], "one-pass same-array-item multi-field predicate", {
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_array_object_same_item", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jq same-array-item multi-field predicate", {
+    toolTask("grep_array_object_same_item", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jq same-array-item multi-field predicate", {
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
-    toolTask("find_array_object_same_item", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jaq same-array-item multi-field predicate", {
+    toolTask("grep_array_object_same_item", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jaq same-array-item multi-field predicate", {
       expectedAnswer: "500",
       answerFrom: stdoutAnswer,
     }),
@@ -597,7 +597,7 @@ function pathsLengthAnswer(stdout) {
   return String(report.paths.length);
 }
 
-function findPredicateCountsAnswer(stdout) {
+function grepPredicateCountsAnswer(stdout) {
   const report = JSON.parse(stdout.toString("utf8"));
   return report.predicates.map((predicate) => String(predicate.matched_records)).join(",");
 }

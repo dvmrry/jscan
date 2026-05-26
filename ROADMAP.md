@@ -77,9 +77,9 @@ These gates should be handled in order:
 2. **Name before contract.** The crate/binary name must be settled before
    publishing schema identifiers, docs, package metadata, or agent guidance.
    `jscan` is already taken on crates.io, so this is a Phase 0 decision.
-3. **Contract before `find`.** Existing `paths` and `shape` output contracts
+3. **Contract before `grep`.** Existing `paths` and `shape` output contracts
    should be documented before adding more surface area.
-4. **Locator before extractor.** `find` must locate matching evidence first.
+4. **Locator before extractor.** `grep` must locate matching evidence first.
    Matching value output may exist, but the tool should not grow into a general
    transformation language.
 5. **Benchmarks before optimization.** Performance work should be driven by
@@ -127,7 +127,7 @@ These gates should be handled in order:
 - Publish JSON Schemas for:
   - `paths` report
   - `shape` report
-  - `profile` report, if `profile` is added before `find`
+  - `profile` report, if `profile` is added before `grep`
   - shared source/error/path/sample objects
 - Add examples for unknown JSON inspection:
   - one file
@@ -144,9 +144,9 @@ These gates should be handled in order:
   - no jq-compatible language
   - no TUI-first workflow
 
-## Phase 2: `find` As A Locator
+## Phase 2: `grep` As A Locator
 
-`find` should answer: where is the matching evidence?
+`grep` should answer: where is the matching evidence?
 
 Start with a JSON query AST before adding a human DSL. Structural predicates are
 the primary surface:
@@ -332,7 +332,7 @@ Start here:
    - presence `select(...)` hints are only emitted for narrower observed paths
 4. Use that feedback to decide whether to:
    - improve `profile`
-   - add focused grep/find
+   - add focused grep
    - improve benchmarks
    - pause/rethink
 5. Then return to [RESEARCH.md](RESEARCH.md) and [PROFILE.md](PROFILE.md) as

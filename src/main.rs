@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
-    FindOptions, FindPredicate, FindSomeConstraint, InputFormat, InputOptions, MatchMode,
-    OutputMode, PathsOptions, ProfileOptions, ShapeOptions, build_profile, collect_find,
-    collect_paths, discover_inputs, infer_shape, parse_path_expr, write_find_matches,
-    write_find_report, write_path_list, write_paths, write_profile, write_shape,
+    GrepOptions, GrepPredicate, GrepSomeConstraint, InputFormat, InputOptions, MatchMode,
+    OutputMode, PathsOptions, ProfileOptions, ShapeOptions, build_profile, collect_grep,
+    collect_paths, discover_inputs, infer_shape, parse_path_expr, write_grep_matches,
+    write_grep_report, write_path_list, write_paths, write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -26,7 +26,7 @@ enum Command {
     /// Build a bounded reconnaissance profile for agents.
     Profile(ProfileCommand),
     /// Search records with multiple structural predicates in one pass.
-    Find(Box<FindCommand>),
+    Grep(Box<GrepCommand>),
 }
 
 #[derive(Debug, Parser)]
@@ -56,7 +56,7 @@ struct ProfileCommand {
 }
 
 #[derive(Debug, Parser)]
-struct FindCommand {
+struct GrepCommand {
     #[command(flatten)]
     scan: ScanArgs,
 
@@ -246,20 +246,20 @@ fn main() -> Result<()> {
                 profile_report.error_count,
             )?;
         }
-        Command::Find(cmd) => {
+        Command::Grep(cmd) => {
             let output = output_mode(&cmd.scan);
             let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
-            let options = find_options(&cmd)?;
-            let report = collect_find(&inputs, &input_options(&cmd.scan), &options)?;
+            let options = grep_options(&cmd)?;
+            let report = collect_grep(&inputs, &input_options(&cmd.scan), &options)?;
 
             let stdout = io::stdout();
             let mut lock = stdout.lock();
             if cmd.scan.json {
-                write_find_report(&mut lock, &report, output)?;
+                write_grep_report(&mut lock, &report, output)?;
             } else if cmd.count {
                 writeln!(lock, "{}", report.matched_records)?;
             } else {
-                write_find_matches(&mut lock, &report)?;
+                write_grep_matches(&mut lock, &report)?;
             }
             lock.flush()?;
             enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
@@ -322,52 +322,52 @@ fn input_options(args: &ScanArgs) -> InputOptions {
     }
 }
 
-fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
+fn grep_options(cmd: &GrepCommand) -> Result<GrepOptions> {
     let mut predicates = Vec::new();
 
     for path in &cmd.has {
-        predicates.push(FindPredicate::Has(parse_path_expr(path)?));
+        predicates.push(GrepPredicate::Has(parse_path_expr(path)?));
     }
     for path in &cmd.missing {
-        predicates.push(FindPredicate::Missing(parse_path_expr(path)?));
+        predicates.push(GrepPredicate::Missing(parse_path_expr(path)?));
     }
     for pair in cmd.eq.chunks_exact(2) {
-        predicates.push(FindPredicate::Eq {
+        predicates.push(GrepPredicate::Eq {
             path: parse_path_expr(&pair[0])?,
             value: pair[1].clone(),
         });
     }
     for pair in cmd.contains.chunks_exact(2) {
-        predicates.push(FindPredicate::Contains {
+        predicates.push(GrepPredicate::Contains {
             path: parse_path_expr(&pair[0])?,
             value: pair[1].clone(),
         });
     }
     for pair in cmd.some_has.chunks_exact(2) {
-        predicates.push(FindPredicate::SomeHas {
+        predicates.push(GrepPredicate::SomeHas {
             path: parse_path_expr(&pair[0])?,
             item_path: parse_path_expr(&pair[1])?,
         });
     }
     for chunk in cmd.some_eq.chunks_exact(3) {
-        predicates.push(FindPredicate::SomeEq {
+        predicates.push(GrepPredicate::SomeEq {
             path: parse_path_expr(&chunk[0])?,
             item_path: parse_path_expr(&chunk[1])?,
             value: chunk[2].clone(),
         });
     }
     for pair in cmd.some.chunks_exact(2) {
-        predicates.push(FindPredicate::Some {
+        predicates.push(GrepPredicate::Some {
             path: parse_path_expr(&pair[0])?,
             constraints: parse_some_constraints(&pair[1])?,
         });
     }
 
     if predicates.is_empty() {
-        bail!("find requires at least one predicate");
+        bail!("grep requires at least one predicate");
     }
 
-    Ok(FindOptions {
+    Ok(GrepOptions {
         predicates,
         mode: if cmd.any {
             MatchMode::Any
@@ -384,7 +384,7 @@ fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
     })
 }
 
-fn parse_some_constraints(input: &str) -> Result<Vec<FindSomeConstraint>> {
+fn parse_some_constraints(input: &str) -> Result<Vec<GrepSomeConstraint>> {
     let mut constraints = Vec::new();
 
     for raw_constraint in input.split(',') {
@@ -398,12 +398,12 @@ fn parse_some_constraints(input: &str) -> Result<Vec<FindSomeConstraint>> {
             if path.is_empty() {
                 bail!("--some equality constraints must include a path before '='");
             }
-            constraints.push(FindSomeConstraint::Eq {
+            constraints.push(GrepSomeConstraint::Eq {
                 path: parse_path_expr(path)?,
                 value: value.trim().to_string(),
             });
         } else {
-            constraints.push(FindSomeConstraint::Has(parse_path_expr(constraint)?));
+            constraints.push(GrepSomeConstraint::Has(parse_path_expr(constraint)?));
         }
     }
 

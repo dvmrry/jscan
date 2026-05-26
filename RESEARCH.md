@@ -16,7 +16,7 @@ Typical commands:
 jsonq paths data.jsonl
 jsonq shape data.jsonl
 jsonq sample --path /user/email data.jsonl
-jsonq find --evidence query.json data.jsonl
+jsonq grep --evidence query.json data.jsonl
 ```
 
 Primary value:
@@ -40,8 +40,8 @@ Typical commands:
 ```sh
 jsonq 'object(status="failed", error.message:string)' logs.jsonl
 jsonq get 'orders[].items[] where sku =~ "^ABC"' dump.json
-jsonq find query.json --values logs.jsonl
-jsonq find query.json --count logs.jsonl
+jsonq grep query.json --values logs.jsonl
+jsonq grep query.json --count logs.jsonl
 ```
 
 Primary value:
@@ -62,15 +62,15 @@ Build the Scout first, but design the internals so the Engine can grow from it.
 Early external behavior should emphasize evidence:
 
 ```sh
-jsonq find --query q.json logs.jsonl
+jsonq grep --query q.json logs.jsonl
 ```
 
 Later output modes may serve the Engine vision:
 
 ```sh
-jsonq find --query q.json --values logs.jsonl
-jsonq find --query q.json --count logs.jsonl
-jsonq find --query q.json --ndjson logs.jsonl
+jsonq grep --query q.json --values logs.jsonl
+jsonq grep --query q.json --count logs.jsonl
+jsonq grep --query q.json --ndjson logs.jsonl
 ```
 
 The key boundary:
@@ -157,7 +157,7 @@ Recommended practical wedge from that agent:
 ```sh
 jscan profile evidence.json --budget 20kb --json
 jscan paths evidence.json --samples 2 --json
-jscan find --has result.Host --has result.ConnectionStatus --limit 20 --json
+jscan grep --has result.Host --has result.ConnectionStatus --limit 20 --json
 ```
 
 Key value statement:
@@ -331,7 +331,7 @@ Product implication:
 
 The private-data reviewer ran `jscan profile --budget 20kb --json` against
 representative evidence and confirmed the concept is useful, but found several
-profile-contract problems to fix before adding `find`:
+profile-contract problems to fix before adding `grep`:
 
 - `.json` files that auto-fallback to NDJSON were parsed correctly but reported
   as `format: auto`, which hid the `jsonl_records` container.
@@ -366,7 +366,7 @@ Recommendation from the review:
 
 > Improve `profile` first. The concept is real and useful for agentic JSON work,
 > but fix format truthfulness, budget accounting, value preservation, and
-> adaptive guidance before adding focused grep/find.
+> adaptive guidance before adding focused grep.
 
 ### Downstream Rerun After Profile Fixes
 
@@ -565,10 +565,10 @@ as a user need, not as a feature.
 
 Seed tasks:
 
-1. I have 4 GB of JSONL logs. Find records where an error object has a message
+1. I have 4 GB of JSONL logs. Grep records where an error object has a message
    and a user ID.
 2. I have a HAR file. Show what request and response fields exist.
-3. I have a GitHub API dump. Find objects where `permissions.admin` is true.
+3. I have a GitHub API dump. Grep objects where `permissions.admin` is true.
 4. I have unknown JSON and need to keep output under 20 KB while learning its
    structure.
 5. I have logs where `status` sometimes changes type. Show the paths and sample
@@ -714,7 +714,7 @@ Findings:
   schema was useful, but only after another tool normalized the input shape.
 - `gron` and `fastgron` are real prior art for making JSON grep-friendly.
   `fastgron` looked especially strong for flattened-output searches, so broad
-  `find` / `grep` surface area must be scoped carefully.
+  `grep` surface area must be scoped carefully.
 - `duckdb` is strong for table-shaped JSON/JSONL once the shape is known. It
   counted representative Splunk, ZIA, and paged-wrapper cases correctly, but it
   requires the user or agent to already know the SQL shape and nested field
@@ -789,18 +789,21 @@ Follow-up tests:
 - Since the rich collector became faster than the old dedicated `--plain`
   walker, `--plain` now renders the trie report's display paths instead of
   maintaining a duplicate traversal.
-- Latest five-run result after collapsing `--plain`: `paths --plain` 19.12 ms,
-  `paths --json` 19.39 ms, TSV `paths` 19.40 ms, and `profile` 20.11 ms.
-  `jt fields` was 38.96 ms in the same run.
+- Latest five-run result after collapsing `--plain`: `paths --plain` 20.26 ms,
+  `paths --json` 20.81 ms, TSV `paths` 20.57 ms, and `profile` 21.21 ms.
+  `jt fields` was 39.36 ms in the same run.
 - This confirms the earlier slow result was overcollection and internal path
   bookkeeping, not a Rust-vs-Go verdict. The richer `jscan paths`/`profile`
-  outputs are now in the same fast scout lane as `find`.
+  outputs are now in the same fast scout lane as `grep`.
 
 ### Multi-Search Experiment
 
 First cut:
 
-- Added `jscan find` as a one-pass structural search command.
+- Added `jscan grep` as a one-pass structural search command.
+- Renamed the command from `find` to `grep` before locking the public surface,
+  because the product positioning is structural grep over JSON evidence rather
+  than filesystem-style discovery.
 - Supported predicates: `--has PATH`, `--missing PATH`, `--eq PATH VALUE`,
   `--contains PATH VALUE`, default all-match mode, optional `--any`, optional
   `--record-root PATH`, `--count`, `--limit`, and `--json`.
@@ -811,17 +814,17 @@ First cut:
 
 Benchmark on synthetic Splunk JSONL, five runs:
 
-- `jscan find --has $.result.Host --eq $.result.ConnectionStatus timeout
-  --contains $.result.domainNames dev.azure.com --count`: 21.30 ms.
-- Equivalent single jq combined predicate: 46.10 ms.
-- Equivalent single jaq combined predicate: 38.07 ms.
-- Three separate jq probe counts over the same file: 138.34 ms.
+- `jscan grep --has $.result.Host --eq $.result.ConnectionStatus timeout
+  --contains $.result.domainNames dev.azure.com --count`: 22.40 ms.
+- Equivalent single jq combined predicate: 45.97 ms.
+- Equivalent single jaq combined predicate: 37.31 ms.
+- Three separate jq probe counts over the same file: 135.47 ms.
 
 This is the strongest evidence so far for the agentic wedge: one bounded
 structural search pass can replace repeated jq/jg/rg probing over the same
-evidence. The next implementation question is whether to optimize `find` with a
-compiled predicate trie, richer output (`--show path,line,value`), or automatic
-handoff from `profile` next-tool hints.
+evidence. Predicate tries still look premature because the lane is parse-bound
+on this fixture; richer `--show` output and profile-to-grep handoff are now
+implemented.
 
 Review follow-up:
 
@@ -842,21 +845,28 @@ Review follow-up:
 - Added `--show PATH` to project one path from matching records with
   source/record/line metadata, avoiding full-record dumps for "show me the
   matching value" workflows.
-- Added `jscan find` to `profile.next_tools`, using the detected
+- `grep --json` includes `match_value`: `full_record` when `matches[].value`
+  contains the full matching record, and `projected_path` when `--show PATH`
+  makes `matches[].value` contain the projected value.
+- Added `jscan grep` to `profile.next_tools`, using the detected
   `--record-root` and an observed selective path when available. This closes the
-  profile-to-find loop.
+  profile-to-grep loop.
+
+Positioning against `jsongrep` / `jg`: the differentiator is not just searching
+JSON fields. It is one-pass per-predicate match counts, same-element `--some`,
+and optional source/line/path evidence for matched records.
 
 Array-of-object benchmark on synthetic order JSONL, five runs:
 
-- `jscan find --some-eq $.items $.sku ABC --count`: 19.02 ms.
-- Equivalent jq predicate: 40.21 ms.
-- Equivalent jaq predicate: 36.78 ms.
+- `jscan grep --some-eq $.items $.sku ABC --count`: 20.09 ms.
+- Equivalent jq predicate: 41.85 ms.
+- Equivalent jaq predicate: 38.05 ms.
 
 Same-array-item benchmark on the same synthetic order JSONL, five runs:
 
-- `jscan find --some $.items sku=ABC,qty=1 --count`: 19.32 ms.
-- Equivalent jq predicate: 41.22 ms.
-- Equivalent jaq predicate: 40.68 ms.
+- `jscan grep --some $.items sku=ABC,qty=1 --count`: 20.66 ms.
+- Equivalent jq predicate: 42.08 ms.
+- Equivalent jaq predicate: 41.85 ms.
 
 Remaining high-value follow-up: unify JSONL detection across commands and
 stream opaque `.json` JSONL instead of trying a whole-file JSON parse first.

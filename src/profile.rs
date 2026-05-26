@@ -808,7 +808,7 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
             "project detected record root {root_label}; no narrower scalar presence predicate was found"
         )
     };
-    let jscan_find_command = root
+    let jscan_grep_command = root
         .map(|root| {
             let predicate = candidate
                 .and_then(|fact| {
@@ -819,22 +819,22 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
                 .unwrap_or_else(|| "<path>".to_string());
 
             format!(
-                "jscan find <input> --record-root {} --has {} --json --limit 0",
+                "jscan grep <input> --record-root {} --has {} --json --limit 0",
                 shell_quote(&root.display_path),
                 shell_quote(&predicate)
             )
         })
-        .unwrap_or_else(|| "jscan find <input> --has '<path>' --json --limit 0".to_string());
+        .unwrap_or_else(|| "jscan grep <input> --has '<path>' --json --limit 0".to_string());
 
     vec![
         NextToolHint {
-            tool: "jscan find".to_string(),
+            tool: "jscan grep".to_string(),
             reason:
                 "one-pass structural probe using the detected record root and per-predicate counts"
                     .to_string(),
             caveat: "use jq/jaq when you need transformation rather than reconnaissance"
                 .to_string(),
-            command: jscan_find_command,
+            command: jscan_grep_command,
         },
         NextToolHint {
             tool: "rg".to_string(),

@@ -66,7 +66,7 @@ Then return:
 - top 5 misleading/noisy profile facts
 - whether the next implementation step should be:
   - improve `profile`
-  - add focused grep/find
+  - add focused grep
   - improve benchmarks
   - pause/rethink
 

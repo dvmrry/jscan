@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
-use crate::find::FindReport;
+use crate::grep::GrepReport;
 use crate::paths::PathReport;
 use crate::profile::ProfileReport;
 use crate::shape::ShapeReport;
@@ -40,9 +40,9 @@ pub fn write_path_list<W: Write>(writer: &mut W, report: &PathReport) -> Result<
     Ok(())
 }
 
-pub fn write_find_report<W: Write>(
+pub fn write_grep_report<W: Write>(
     writer: &mut W,
-    report: &FindReport,
+    report: &GrepReport,
     mode: OutputMode,
 ) -> Result<()> {
     match mode {
@@ -50,13 +50,13 @@ pub fn write_find_report<W: Write>(
             serde_json::to_writer_pretty(&mut *writer, report)?;
             writeln!(writer)?;
         }
-        OutputMode::Pretty => write_pretty_find(writer, report)?,
+        OutputMode::Pretty => write_pretty_grep(writer, report)?,
     }
 
     Ok(())
 }
 
-pub fn write_find_matches<W: Write>(writer: &mut W, report: &FindReport) -> Result<()> {
+pub fn write_grep_matches<W: Write>(writer: &mut W, report: &GrepReport) -> Result<()> {
     for matched in &report.matches {
         if matched.path.is_some() {
             serde_json::to_writer(&mut *writer, matched)?;
@@ -97,10 +97,10 @@ pub fn write_profile<W: Write>(
     Ok(())
 }
 
-fn write_pretty_find<W: Write>(writer: &mut W, report: &FindReport) -> Result<()> {
+fn write_pretty_grep<W: Write>(writer: &mut W, report: &GrepReport) -> Result<()> {
     writeln!(
         writer,
-        "FIND\tmatched:{}\tscanned:{}\terrors:{}",
+        "GREP\tmatched:{}\tscanned:{}\terrors:{}",
         report.matched_records, report.scanned_records, report.error_count
     )?;
 

@@ -48,9 +48,9 @@ multiple files should continue after a bad source.
 
 `--strict` converts partial scans into non-zero exits after writing the report.
 
-## Find Contract
+## Grep Contract
 
-`find` must locate, not extract.
+`grep` must locate, not extract.
 
 It should produce match evidence that can be piped to another tool for
 transformation. It should avoid becoming a jq-like expression language.
