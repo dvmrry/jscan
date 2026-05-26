@@ -283,7 +283,9 @@ Every implementation step should include:
 Benchmark reporting should keep the current categories:
 
 - fair competitor races
-- contract or answer mismatch rows
+- same task, different contract rows
+- different lane rows
+- answer mismatch rows
 - solo coverage rows
 - expected failures
 - missing optional tools

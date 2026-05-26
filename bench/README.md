@@ -106,6 +106,15 @@ That is useful product signal, but not a clean implementation-speed comparison.
 Add narrower rows when needed, such as a plain path-list mode or a competitor
 command that emits comparable path/type/count metadata.
 
+The scorecard keeps the fair-race gate strict and splits non-fair rows by why
+they are not fair races:
+
+- same task, different contract: useful product evidence, such as one-pass
+  `jscan` output replacing several narrower probes
+- different lane: raw text, flattening, or schema-generation rows that belong
+  to a tool-specific non-goal
+- answer mismatch: rows that failed validation or emitted an unparsable answer
+
 For downstream private data, keep the same columns and add notes for:
 
 - whether the command answered the actual investigation question

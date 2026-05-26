@@ -222,6 +222,47 @@ function writeBracketWrapper(path, count) {
 function workflowTrials(f, t) {
   return [
     {
+      trial: "splunk_multi_probe_counts",
+      input: f.splunkJsonNamedJson,
+      expected: "10000,2500,1250",
+      question: "Collect independent structural probe counts for Host presence, timeout status, and dev.azure.com domain membership.",
+      workflows: [
+        workflow(
+          "jscan_grep_one_pass",
+          "one_pass_structural_probe",
+          [
+            [
+              t.jscan,
+              "grep",
+              f.splunkJsonNamedJson,
+              "--has",
+              "$.result.Host",
+              "--eq",
+              "$.result.ConnectionStatus",
+              "timeout",
+              "--contains",
+              "$.result.domainNames",
+              "dev.azure.com",
+              "--json",
+              "--limit",
+              "0",
+            ],
+          ],
+          { answerFrom: grepPredicateCountsAnswer },
+        ),
+        workflow(
+          "blind_jq_probes",
+          "blind_probe_then_query",
+          [
+            jqJsonl(t.jq, "reduce inputs as $row (0; if $row.result.Host? != null then . + 1 else . end)", f.splunkJsonNamedJson),
+            jqJsonl(t.jq, "reduce inputs as $row (0; if $row.result.ConnectionStatus? == \"timeout\" then . + 1 else . end)", f.splunkJsonNamedJson),
+            jqJsonl(t.jq, "reduce inputs as $row (0; if any(($row.result.domainNames? // [])[]; . == \"dev.azure.com\") then . + 1 else . end)", f.splunkJsonNamedJson),
+          ],
+          { answerFrom: stepStdoutCsvAnswer },
+        ),
+      ],
+    },
+    {
       trial: "splunk_timeout_count",
       input: f.splunkJsonNamedJson,
       expected: "2500",
@@ -298,8 +339,8 @@ function workflowTrials(f, t) {
   ];
 }
 
-function workflow(name, kind, steps) {
-  return { name, kind, steps };
+function workflow(name, kind, steps, extra = {}) {
+  return { name, kind, steps, ...extra };
 }
 
 function jqJsonl(jq, filter, input) {
@@ -330,7 +371,7 @@ function runWorkflow(trial, workflow, opts) {
 
   const statuses = new Set(runs.flatMap((run) => run.steps.map((step) => step.status)));
   let status = statuses.size === 1 && statuses.has(0) ? "ok" : `exit:${[...statuses].join("|")}`;
-  const answers = runs.map((run) => stdoutAnswer(run.lastStdout));
+  const answers = runs.map((run) => answerForWorkflow(workflow, run));
   if (status === "ok" && answers.some((answer) => answer !== trial.expected)) {
     status = "wrong_answer";
   }
@@ -415,6 +456,19 @@ function missingRow(trial, workflow) {
 
 function stdoutAnswer(stdout) {
   return stdout.toString("utf8").trim();
+}
+
+function answerForWorkflow(workflow, run) {
+  return workflow.answerFrom ? workflow.answerFrom(run) : stdoutAnswer(run.lastStdout);
+}
+
+function grepPredicateCountsAnswer(run) {
+  const report = JSON.parse(run.lastStdout.toString("utf8"));
+  return report.predicates.map((predicate) => String(predicate.matched_records)).join(",");
+}
+
+function stepStdoutCsvAnswer(run) {
+  return run.steps.map((step) => stdoutAnswer(step.stdout)).join(",");
 }
 
 function median(values) {

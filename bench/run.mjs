@@ -712,12 +712,35 @@ function annotateCategories(rows) {
     for (const contractGroup of contractGroups.values()) {
       const category = isFairRace(contractGroup)
         ? "fair_competitor_race"
-        : "contract_or_answer_mismatch";
+        : nonFairCategory(contractGroup, comparable);
       for (const row of contractGroup) {
         row.category = category;
       }
     }
   }
+}
+
+function nonFairCategory(rows, taskRows) {
+  if (rows.some((row) => row.status !== "ok" || row.answer.startsWith("error:"))) {
+    return "answer_mismatch";
+  }
+
+  if (rows.some(isDifferentLaneRow)) {
+    return "different_lane";
+  }
+
+  const sameTaskHasDifferentLane = taskRows.some(isDifferentLaneRow);
+  if (sameTaskHasDifferentLane && !taskRows.some((row) => row.tool === "jscan")) {
+    return "different_lane";
+  }
+
+  return "same_task_different_contract";
+}
+
+function isDifferentLaneRow(row) {
+  return row.semantic !== "json_structural"
+    || row.task.startsWith("schema_")
+    || row.task.startsWith("flatten_");
 }
 
 function isFairRace(rows) {
@@ -789,7 +812,9 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
     .join("\n");
   const categoryRows = [
     ["fair_competitor_race", "Fair competitor races"],
-    ["contract_or_answer_mismatch", "Contract or answer mismatch rows"],
+    ["same_task_different_contract", "Same task, different contract rows"],
+    ["different_lane", "Different lane rows"],
+    ["answer_mismatch", "Answer mismatch rows"],
     ["solo_coverage", "Solo coverage rows"],
     ["expected_failure", "Expected failure rows"],
     ["missing_optional_tool", "Missing optional tools"],
@@ -798,7 +823,9 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
     .join("\n");
   const resultSections = [
     ["fair_competitor_race", "Fair Competitor Races"],
-    ["contract_or_answer_mismatch", "Contract Or Answer Mismatch Rows"],
+    ["same_task_different_contract", "Same Task, Different Contract Rows"],
+    ["different_lane", "Different Lane Rows"],
+    ["answer_mismatch", "Answer Mismatch Rows"],
     ["solo_coverage", "Solo Coverage Rows"],
     ["expected_failure", "Expected Failure Rows"],
     ["missing_optional_tool", "Missing Optional Tools"],
