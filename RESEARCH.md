@@ -738,10 +738,10 @@ The first expanded benchmark with `jt`, `quicktype`, `genson-cli`,
 enough to declare the project dead. It is enough to show that several rows were
 apples-to-oranges:
 
-- `jt fields` was faster than `jscan paths --json` on synthetic Splunk JSONL,
-  but emitted a compact field list while `jscan` emitted a larger stable JSON
-  report with path counts, type counts, source/error metadata, and path display
-  variants.
+- In the pre-trie run, `jt fields` was faster than `jscan paths --json` on
+  synthetic Splunk JSONL, but emitted a compact field list while `jscan`
+  emitted a larger stable JSON report with path counts, type counts,
+  source/error metadata, and path display variants.
 - `genson-cli --ndjson` and `drivel` were very fast schema baselines, but they
   target schema inference, not source-line evidence, wrapper/root routing,
   bounded samples, or next-tool guidance.
@@ -783,9 +783,15 @@ Follow-up tests:
 - `jt fields` was 40.09 ms in the same run. It emits a narrower field list
   without the root path or array-item template paths that `jscan --plain`
   includes.
-- This confirms the earlier slow result was overcollection, not a Rust-vs-Go
-  verdict. The richer `jscan paths`/`profile` outputs still cost about 56-58 ms
-  on this fixture, but a focused scout lane can be materially faster.
+- A trie-backed full path collector then removed the hot-path
+  `Vec<PathSegment>` deep clone and per-value `BTreeMap<Vec<_>>` lookup. Type
+  counts also moved from per-value `String` keys to fixed counters.
+- Latest five-run result after the trie: `paths --json` 20.76 ms, TSV `paths`
+  20.57 ms, `profile` 21.84 ms, and `paths --plain` 24.30 ms. `jt fields` was
+  38.93 ms in the same run.
+- This confirms the earlier slow result was overcollection and internal path
+  bookkeeping, not a Rust-vs-Go verdict. The richer `jscan paths`/`profile`
+  outputs are now in the same fast scout lane as `find`.
 
 ### Multi-Search Experiment
 

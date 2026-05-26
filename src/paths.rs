@@ -96,8 +96,19 @@ pub struct ScanError {
 #[derive(Debug, Default)]
 struct MutablePathEntry {
     count: usize,
-    types: BTreeMap<String, usize>,
+    types: TypeCounts,
     samples: Vec<PathSample>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct TypeCounts {
+    null: usize,
+    boolean: usize,
+    integer: usize,
+    number: usize,
+    string: usize,
+    array: usize,
+    object: usize,
 }
 
 pub fn collect_paths(
@@ -105,15 +116,11 @@ pub fn collect_paths(
     input_options: &InputOptions,
     paths_options: &PathsOptions,
 ) -> Result<PathReport> {
-    let mut state = CollectorState {
-        paths: BTreeMap::new(),
-        sources: Vec::new(),
-        errors: Vec::new(),
-        error_count: 0,
-        max_errors: input_options.max_errors,
-        samples_per_path: paths_options.samples_per_path,
-        sample_max_chars: paths_options.sample_max_chars,
-    };
+    let mut state = CollectorState::new(
+        input_options.max_errors,
+        paths_options.samples_per_path,
+        paths_options.sample_max_chars,
+    );
 
     for input in inputs {
         let label = input_label(input);
@@ -223,7 +230,8 @@ fn process_auto_input(
         Ok(value) => {
             source_state.set_format(InputFormat::Json);
             source_state.record(&value);
-            visit_value(state, source, 1, Some(1), &mut Vec::new(), &value);
+            let root = state.root_node();
+            visit_value(state, source, 1, Some(1), root, &value);
         }
         Err(error) if looks_line_delimited(&contents) => {
             let buffered = parse_jsonl_buffer(source, &contents, state.max_errors);
@@ -293,7 +301,8 @@ fn process_json_contents(
     match serde_json::from_str::<Value>(contents) {
         Ok(value) => {
             source_state.record(&value);
-            visit_value(state, source, 1, Some(1), &mut Vec::new(), &value);
+            let root = state.root_node();
+            visit_value(state, source, 1, Some(1), root, &value);
         }
         Err(error) => {
             state.push_error(ScanError {
@@ -482,14 +491,8 @@ fn process_jsonl_reader<R: BufRead>(
                     Ok(value) => {
                         records += 1;
                         source_state.record(&value);
-                        visit_value(
-                            state,
-                            source,
-                            records,
-                            Some(line_number),
-                            &mut Vec::new(),
-                            &value,
-                        );
+                        let root = state.root_node();
+                        visit_value(state, source, records, Some(line_number), root, &value);
                     }
                     Err(error) => state.push_error(ScanError {
                         source: source.to_string(),
@@ -600,12 +603,13 @@ fn apply_jsonl_buffer(
     for record in buffered.records {
         records += 1;
         source_state.record(&record.value);
+        let root = state.root_node();
         visit_value(
             state,
             source,
             records,
             Some(record.line),
-            &mut Vec::new(),
+            root,
             &record.value,
         );
     }
@@ -625,13 +629,26 @@ fn looks_line_delimited(contents: &str) -> bool {
 }
 
 struct CollectorState {
-    paths: BTreeMap<Vec<PathSegment>, MutablePathEntry>,
+    paths: PathTrie,
     sources: Vec<SourceReport>,
     errors: Vec<ScanError>,
     error_count: usize,
     max_errors: usize,
     samples_per_path: usize,
     sample_max_chars: usize,
+}
+
+#[derive(Debug)]
+struct PathTrie {
+    nodes: Vec<PathNode>,
+}
+
+#[derive(Debug)]
+struct PathNode {
+    segment: Option<PathSegment>,
+    parent: Option<usize>,
+    children: Vec<usize>,
+    entry: MutablePathEntry,
 }
 
 struct PathListState {
@@ -658,6 +675,133 @@ struct SourceArrayFieldState {
     item_count: usize,
 }
 
+impl TypeCounts {
+    fn record(&mut self, value: &Value) {
+        match value {
+            Value::Null => self.null += 1,
+            Value::Bool(_) => self.boolean += 1,
+            Value::Number(number) if number.is_i64() || number.is_u64() => self.integer += 1,
+            Value::Number(_) => self.number += 1,
+            Value::String(_) => self.string += 1,
+            Value::Array(_) => self.array += 1,
+            Value::Object(_) => self.object += 1,
+        }
+    }
+
+    fn into_map(self) -> BTreeMap<String, usize> {
+        let mut types = BTreeMap::new();
+        push_type_count(&mut types, "array", self.array);
+        push_type_count(&mut types, "boolean", self.boolean);
+        push_type_count(&mut types, "integer", self.integer);
+        push_type_count(&mut types, "null", self.null);
+        push_type_count(&mut types, "number", self.number);
+        push_type_count(&mut types, "object", self.object);
+        push_type_count(&mut types, "string", self.string);
+        types
+    }
+}
+
+fn push_type_count(types: &mut BTreeMap<String, usize>, name: &str, count: usize) {
+    if count > 0 {
+        types.insert(name.to_string(), count);
+    }
+}
+
+impl PathTrie {
+    fn new() -> Self {
+        Self {
+            nodes: vec![PathNode {
+                segment: None,
+                parent: None,
+                children: Vec::new(),
+                entry: MutablePathEntry::default(),
+            }],
+        }
+    }
+
+    fn root(&self) -> usize {
+        0
+    }
+
+    fn child_for_array_item(&mut self, parent: usize) -> usize {
+        for index in 0..self.nodes[parent].children.len() {
+            let child = self.nodes[parent].children[index];
+            if matches!(self.nodes[child].segment, Some(PathSegment::ArrayItem)) {
+                return child;
+            }
+        }
+
+        self.push_child(parent, PathSegment::ArrayItem)
+    }
+
+    fn child_for_field(&mut self, parent: usize, key: &str) -> usize {
+        for index in 0..self.nodes[parent].children.len() {
+            let child = self.nodes[parent].children[index];
+            if let Some(PathSegment::Field { name }) = &self.nodes[child].segment
+                && name == key
+            {
+                return child;
+            }
+        }
+
+        self.push_child(
+            parent,
+            PathSegment::Field {
+                name: key.to_string(),
+            },
+        )
+    }
+
+    fn push_child(&mut self, parent: usize, segment: PathSegment) -> usize {
+        let node = self.nodes.len();
+        self.nodes.push(PathNode {
+            segment: Some(segment),
+            parent: Some(parent),
+            children: Vec::new(),
+            entry: MutablePathEntry::default(),
+        });
+        self.nodes[parent].children.push(node);
+        node
+    }
+
+    fn path_entries(self) -> Vec<PathEntry> {
+        let segments_by_node = (0..self.nodes.len())
+            .map(|node| self.segments_for_node(node))
+            .collect::<Vec<_>>();
+        let mut entries = self
+            .nodes
+            .into_iter()
+            .zip(segments_by_node)
+            .filter(|(node, _)| node.entry.count > 0)
+            .map(|(node, segments)| PathEntry {
+                display_path: display_path(&segments),
+                pointer_template: pointer_template(&segments),
+                segments,
+                count: node.entry.count,
+                types: node.entry.types.into_map(),
+                samples: node.entry.samples,
+            })
+            .collect::<Vec<_>>();
+
+        entries.sort_by(|left, right| left.segments.cmp(&right.segments));
+        entries
+    }
+
+    fn segments_for_node(&self, mut node: usize) -> Vec<PathSegment> {
+        let mut segments = Vec::new();
+        while let Some(parent) = self.nodes[node].parent {
+            let segment = self.nodes[node]
+                .segment
+                .as_ref()
+                .expect("non-root path node has a segment");
+            segments.push(segment.clone());
+            node = parent;
+        }
+        segments.reverse();
+        segments
+    }
+}
+
 impl SourceState {
     fn new(source: String, format: InputFormat) -> Self {
         Self {
@@ -677,17 +821,24 @@ impl SourceState {
 
     fn record(&mut self, value: &Value) {
         self.records += 1;
-        *self
-            .root_kinds
-            .entry(json_type(value).to_string())
-            .or_insert(0) += 1;
+        increment_string_count(&mut self.root_kinds, json_type(value));
 
         match value {
             Value::Object(object) => {
                 for (key, value) in object {
-                    *self.top_level_fields.entry(key.clone()).or_insert(0) += 1;
+                    increment_string_count(&mut self.top_level_fields, key);
                     if let Value::Array(items) = value {
-                        let field = self.array_fields.entry(key.clone()).or_default();
+                        let field = if self.array_fields.contains_key(key.as_str()) {
+                            self.array_fields
+                                .get_mut(key.as_str())
+                                .expect("array field exists")
+                        } else {
+                            self.array_fields
+                                .insert(key.clone(), SourceArrayFieldState::default());
+                            self.array_fields
+                                .get_mut(key.as_str())
+                                .expect("array field was inserted")
+                        };
                         field.count += 1;
                         field.item_count += items.len();
                     }
@@ -724,20 +875,33 @@ impl SourceState {
     }
 }
 
+fn increment_string_count(counts: &mut BTreeMap<String, usize>, key: &str) {
+    if let Some(count) = counts.get_mut(key) {
+        *count += 1;
+    } else {
+        counts.insert(key.to_string(), 1);
+    }
+}
+
 impl CollectorState {
+    fn new(max_errors: usize, samples_per_path: usize, sample_max_chars: usize) -> Self {
+        Self {
+            paths: PathTrie::new(),
+            sources: Vec::new(),
+            errors: Vec::new(),
+            error_count: 0,
+            max_errors,
+            samples_per_path,
+            sample_max_chars,
+        }
+    }
+
+    fn root_node(&self) -> usize {
+        self.paths.root()
+    }
+
     fn finish(self) -> PathReport {
-        let paths = self
-            .paths
-            .into_iter()
-            .map(|(segments, entry)| PathEntry {
-                display_path: display_path(&segments),
-                pointer_template: pointer_template(&segments),
-                segments,
-                count: entry.count,
-                types: entry.types,
-                samples: entry.samples,
-            })
-            .collect();
+        let paths = self.paths.path_entries();
 
         PathReport {
             schema: REPORT_SCHEMA,
@@ -791,24 +955,22 @@ fn visit_value(
     source: &str,
     record: usize,
     line: Option<usize>,
-    path: &mut Vec<PathSegment>,
+    node: usize,
     value: &Value,
 ) {
-    record_path(state, source, record, line, path, value);
+    record_path(state, source, record, line, node, value);
 
     match value {
         Value::Array(values) => {
-            path.push(PathSegment::ArrayItem);
+            let child = state.paths.child_for_array_item(node);
             for value in values {
-                visit_value(state, source, record, line, path, value);
+                visit_value(state, source, record, line, child, value);
             }
-            path.pop();
         }
         Value::Object(object) => {
             for (key, value) in object {
-                path.push(PathSegment::Field { name: key.clone() });
-                visit_value(state, source, record, line, path, value);
-                path.pop();
+                let child = state.paths.child_for_field(node, key);
+                visit_value(state, source, record, line, child, value);
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
@@ -861,12 +1023,12 @@ fn record_path(
     source: &str,
     record: usize,
     line: Option<usize>,
-    path: &[PathSegment],
+    node: usize,
     value: &Value,
 ) {
-    let entry = state.paths.entry(path.to_vec()).or_default();
+    let entry = &mut state.paths.nodes[node].entry;
     entry.count += 1;
-    *entry.types.entry(json_type(value).to_string()).or_insert(0) += 1;
+    entry.types.record(value);
 
     if state.samples_per_path > 0
         && entry.samples.len() < state.samples_per_path
@@ -1003,17 +1165,10 @@ mod tests {
                 {"id": 2, "email": null}
             ]
         });
-        let mut state = CollectorState {
-            paths: BTreeMap::new(),
-            sources: Vec::new(),
-            errors: Vec::new(),
-            error_count: 0,
-            max_errors: 10,
-            samples_per_path: 2,
-            sample_max_chars: 200,
-        };
+        let mut state = CollectorState::new(10, 2, 200);
 
-        visit_value(&mut state, "fixture", 1, Some(1), &mut Vec::new(), &value);
+        let root = state.root_node();
+        visit_value(&mut state, "fixture", 1, Some(1), root, &value);
         let report = state.finish();
         let paths: BTreeSet<_> = report
             .paths
