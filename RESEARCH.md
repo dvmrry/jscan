@@ -786,9 +786,12 @@ Follow-up tests:
 - A trie-backed full path collector then removed the hot-path
   `Vec<PathSegment>` deep clone and per-value `BTreeMap<Vec<_>>` lookup. Type
   counts also moved from per-value `String` keys to fixed counters.
-- Latest five-run result after the trie: `paths --json` 20.76 ms, TSV `paths`
-  20.57 ms, `profile` 21.84 ms, and `paths --plain` 24.30 ms. `jt fields` was
-  38.93 ms in the same run.
+- Since the rich collector became faster than the old dedicated `--plain`
+  walker, `--plain` now renders the trie report's display paths instead of
+  maintaining a duplicate traversal.
+- Latest five-run result after collapsing `--plain`: `paths --plain` 20.54 ms,
+  `paths --json` 20.92 ms, TSV `paths` 20.75 ms, and `profile` 21.65 ms.
+  `jt fields` was 39.55 ms in the same run.
 - This confirms the earlier slow result was overcollection and internal path
   bookkeeping, not a Rust-vs-Go verdict. The richer `jscan paths`/`profile`
   outputs are now in the same fast scout lane as `find`.

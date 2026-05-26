@@ -5,9 +5,9 @@ use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
     FindOptions, FindPredicate, InputFormat, InputOptions, MatchMode, OutputMode, PathsOptions,
-    ProfileOptions, ShapeOptions, build_profile, collect_find, collect_path_list, collect_paths,
-    discover_inputs, infer_shape, parse_path_expr, write_find_matches, write_find_report,
-    write_path_list, write_paths, write_profile, write_shape,
+    ProfileOptions, ShapeOptions, build_profile, collect_find, collect_paths, discover_inputs,
+    infer_shape, parse_path_expr, write_find_matches, write_find_report, write_path_list,
+    write_paths, write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -166,20 +166,19 @@ fn main() -> Result<()> {
             let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
             let stdout = io::stdout();
             let mut lock = stdout.lock();
+            let report = collect_paths(
+                &inputs,
+                &input_options(&cmd.scan),
+                &PathsOptions {
+                    samples_per_path: if cmd.plain { 0 } else { cmd.scan.samples },
+                    sample_max_chars: cmd.scan.sample_max_chars,
+                },
+            )?;
             if cmd.plain {
-                let report = collect_path_list(&inputs, &input_options(&cmd.scan))?;
                 write_path_list(&mut lock, &report)?;
                 lock.flush()?;
                 enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
             } else {
-                let report = collect_paths(
-                    &inputs,
-                    &input_options(&cmd.scan),
-                    &PathsOptions {
-                        samples_per_path: cmd.scan.samples,
-                        sample_max_chars: cmd.scan.sample_max_chars,
-                    },
-                )?;
                 write_paths(&mut lock, &report, output_mode(&cmd.scan))?;
                 lock.flush()?;
                 enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;

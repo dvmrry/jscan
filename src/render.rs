@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::Result;
 
 use crate::find::FindReport;
-use crate::paths::{PathListReport, PathReport};
+use crate::paths::PathReport;
 use crate::profile::ProfileReport;
 use crate::shape::ShapeReport;
 
@@ -25,8 +25,15 @@ pub fn write_paths<W: Write>(writer: &mut W, report: &PathReport, mode: OutputMo
     Ok(())
 }
 
-pub fn write_path_list<W: Write>(writer: &mut W, report: &PathListReport) -> Result<()> {
-    for path in &report.paths {
+pub fn write_path_list<W: Write>(writer: &mut W, report: &PathReport) -> Result<()> {
+    let mut paths = report
+        .paths
+        .iter()
+        .map(|entry| entry.display_path.as_str())
+        .collect::<Vec<_>>();
+    paths.sort_unstable();
+
+    for path in paths {
         writeln!(writer, "{path}")?;
     }
 
