@@ -40,6 +40,16 @@ pub enum FindPredicate {
         item_path: PathExpr,
         value: String,
     },
+    Some {
+        path: PathExpr,
+        constraints: Vec<FindSomeConstraint>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum FindSomeConstraint {
+    Has(PathExpr),
+    Eq { path: PathExpr, value: String },
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -600,6 +610,12 @@ impl FindPredicate {
                     .iter()
                     .any(|value| array_some(value, item_path, Some(expected)))
             }
+            FindPredicate::Some { path, constraints } => {
+                values_at_path(value, &path.segments, &mut values);
+                values
+                    .iter()
+                    .any(|value| array_some_all(value, constraints))
+            }
         }
     }
 
@@ -619,6 +635,40 @@ impl FindPredicate {
                 item_path,
                 value,
             } => format!("some-eq {} {} {}", path.raw, item_path.raw, value),
+            FindPredicate::Some { path, constraints } => {
+                let constraints = constraints
+                    .iter()
+                    .map(FindSomeConstraint::display)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("some {} {}", path.raw, constraints)
+            }
+        }
+    }
+}
+
+impl FindSomeConstraint {
+    fn matches(&self, value: &Value) -> bool {
+        let mut values = Vec::new();
+        match self {
+            FindSomeConstraint::Has(path) => {
+                values_at_path(value, &path.segments, &mut values);
+                !values.is_empty()
+            }
+            FindSomeConstraint::Eq {
+                path,
+                value: expected,
+            } => {
+                values_at_path(value, &path.segments, &mut values);
+                values.iter().any(|value| value_equals(value, expected))
+            }
+        }
+    }
+
+    fn display(&self) -> String {
+        match self {
+            FindSomeConstraint::Has(path) => path.raw.clone(),
+            FindSomeConstraint::Eq { path, value } => format!("{}={}", path.raw, value),
         }
     }
 }
@@ -680,6 +730,18 @@ fn array_some(value: &Value, item_path: &PathExpr, expected: Option<&str>) -> bo
     })
 }
 
+fn array_some_all(value: &Value, constraints: &[FindSomeConstraint]) -> bool {
+    let Value::Array(items) = value else {
+        return false;
+    };
+
+    items.iter().any(|item| {
+        constraints
+            .iter()
+            .all(|constraint| constraint.matches(item))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,5 +792,30 @@ mod tests {
         };
 
         assert!(predicate.matches(&value));
+    }
+
+    #[test]
+    fn some_conjoins_constraints_on_same_array_item() {
+        let value = serde_json::json!({
+            "events": [
+                {"action": "blocked", "user": "bob"},
+                {"action": "allowed", "user": "alice"}
+            ]
+        });
+        let predicate = FindPredicate::Some {
+            path: parse_path_expr("$.events").expect("array path"),
+            constraints: vec![
+                FindSomeConstraint::Eq {
+                    path: parse_path_expr("action").expect("action path"),
+                    value: "blocked".to_string(),
+                },
+                FindSomeConstraint::Eq {
+                    path: parse_path_expr("user").expect("user path"),
+                    value: "alice".to_string(),
+                },
+            ],
+        };
+
+        assert!(!predicate.matches(&value));
     }
 }

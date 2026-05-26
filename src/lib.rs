@@ -6,7 +6,8 @@ mod render;
 mod shape;
 
 pub use find::{
-    FindOptions, FindPredicate, FindReport, MatchMode, PathExpr, collect_find, parse_path_expr,
+    FindOptions, FindPredicate, FindReport, FindSomeConstraint, MatchMode, PathExpr, collect_find,
+    parse_path_expr,
 };
 pub use input::{DiscoveredInput, InputFormat, InputOptions, discover_inputs};
 pub use paths::{PathReport, PathsOptions, collect_paths};

@@ -789,9 +789,9 @@ Follow-up tests:
 - Since the rich collector became faster than the old dedicated `--plain`
   walker, `--plain` now renders the trie report's display paths instead of
   maintaining a duplicate traversal.
-- Latest five-run result after collapsing `--plain`: `paths --plain` 20.54 ms,
-  `paths --json` 20.92 ms, TSV `paths` 20.75 ms, and `profile` 21.65 ms.
-  `jt fields` was 39.55 ms in the same run.
+- Latest five-run result after collapsing `--plain`: `paths --plain` 19.12 ms,
+  `paths --json` 19.39 ms, TSV `paths` 19.40 ms, and `profile` 20.11 ms.
+  `jt fields` was 38.96 ms in the same run.
 - This confirms the earlier slow result was overcollection and internal path
   bookkeeping, not a Rust-vs-Go verdict. The richer `jscan paths`/`profile`
   outputs are now in the same fast scout lane as `find`.
@@ -832,6 +832,9 @@ Review follow-up:
   and `--some-eq ARRAY_PATH ITEM_PATH VALUE`. This covers the recurring
   "records where an array contains an object with field X = Y" task without
   overloading string/array `--contains` semantics.
+- Added grouped same-element matching: `--some ARRAY_PATH path=value,path=value`
+  or `--some ARRAY_PATH path,path`. This avoids the false positive where two
+  independent `--some-eq` predicates can match different array elements.
 - Adjusted `--eq` matching so CLI values are parsed as JSON first and fall back
   to string comparison only when the argument is not JSON. This makes numeric
   and boolean comparisons explicit while preserving ergonomic string values like
@@ -845,9 +848,15 @@ Review follow-up:
 
 Array-of-object benchmark on synthetic order JSONL, five runs:
 
-- `jscan find --some-eq $.items $.sku ABC --count`: 20.64 ms.
-- Equivalent jq predicate: 41.17 ms.
-- Equivalent jaq predicate: 38.15 ms.
+- `jscan find --some-eq $.items $.sku ABC --count`: 19.02 ms.
+- Equivalent jq predicate: 40.21 ms.
+- Equivalent jaq predicate: 36.78 ms.
+
+Same-array-item benchmark on the same synthetic order JSONL, five runs:
+
+- `jscan find --some $.items sku=ABC,qty=1 --count`: 19.32 ms.
+- Equivalent jq predicate: 41.22 ms.
+- Equivalent jaq predicate: 40.68 ms.
 
 Remaining high-value follow-up: unify JSONL detection across commands and
 stream opaque `.json` JSONL instead of trying a whole-file JSON parse first.

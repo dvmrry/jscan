@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
-    FindOptions, FindPredicate, InputFormat, InputOptions, MatchMode, OutputMode, PathsOptions,
-    ProfileOptions, ShapeOptions, build_profile, collect_find, collect_paths, discover_inputs,
-    infer_shape, parse_path_expr, write_find_matches, write_find_report, write_path_list,
-    write_paths, write_profile, write_shape,
+    FindOptions, FindPredicate, FindSomeConstraint, InputFormat, InputOptions, MatchMode,
+    OutputMode, PathsOptions, ProfileOptions, ShapeOptions, build_profile, collect_find,
+    collect_paths, discover_inputs, infer_shape, parse_path_expr, write_find_matches,
+    write_find_report, write_path_list, write_paths, write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -26,7 +26,7 @@ enum Command {
     /// Build a bounded reconnaissance profile for agents.
     Profile(ProfileCommand),
     /// Search records with multiple structural predicates in one pass.
-    Find(FindCommand),
+    Find(Box<FindCommand>),
 }
 
 #[derive(Debug, Parser)]
@@ -83,6 +83,10 @@ struct FindCommand {
     /// Require ARRAY_PATH to contain an item where ITEM_PATH equals VALUE.
     #[arg(long = "some-eq", value_names = ["ARRAY_PATH", "ITEM_PATH", "VALUE"], num_args = 3)]
     some_eq: Vec<String>,
+
+    /// Require ARRAY_PATH to contain one item matching all constraints, e.g. action=blocked,user=alice.
+    #[arg(long = "some", value_names = ["ARRAY_PATH", "CONSTRAINTS"], num_args = 2)]
+    some: Vec<String>,
 
     /// Treat top-level values at PATH as records before applying predicates.
     #[arg(long, value_name = "PATH")]
@@ -352,6 +356,12 @@ fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
             value: chunk[2].clone(),
         });
     }
+    for pair in cmd.some.chunks_exact(2) {
+        predicates.push(FindPredicate::Some {
+            path: parse_path_expr(&pair[0])?,
+            constraints: parse_some_constraints(&pair[1])?,
+        });
+    }
 
     if predicates.is_empty() {
         bail!("find requires at least one predicate");
@@ -372,6 +382,36 @@ fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
         show_path: cmd.show.as_deref().map(parse_path_expr).transpose()?,
         match_limit: cmd.limit,
     })
+}
+
+fn parse_some_constraints(input: &str) -> Result<Vec<FindSomeConstraint>> {
+    let mut constraints = Vec::new();
+
+    for raw_constraint in input.split(',') {
+        let constraint = raw_constraint.trim();
+        if constraint.is_empty() {
+            bail!("--some constraints cannot be empty");
+        }
+
+        if let Some((path, value)) = constraint.split_once('=') {
+            let path = path.trim();
+            if path.is_empty() {
+                bail!("--some equality constraints must include a path before '='");
+            }
+            constraints.push(FindSomeConstraint::Eq {
+                path: parse_path_expr(path)?,
+                value: value.trim().to_string(),
+            });
+        } else {
+            constraints.push(FindSomeConstraint::Has(parse_path_expr(constraint)?));
+        }
+    }
+
+    if constraints.is_empty() {
+        bail!("--some requires at least one constraint");
+    }
+
+    Ok(constraints)
 }
 
 fn enforce_strict(strict: bool, partial: bool, error_count: usize) -> Result<()> {

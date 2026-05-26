@@ -148,6 +148,42 @@ fn find_some_eq_matches_array_object_items() {
 }
 
 #[test]
+fn find_some_conjoins_constraints_on_same_array_item() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("--some")
+        .arg("$.events")
+        .arg("action=blocked,user=alice")
+        .arg("--count")
+        .write_stdin(
+            r#"{"events":[{"action":"blocked","user":"bob"},{"action":"allowed","user":"alice"}]}
+{"events":[{"action":"blocked","user":"alice"}]}"#,
+        )
+        .assert()
+        .success()
+        .stdout("1\n");
+}
+
+#[test]
+fn find_some_supports_same_item_presence_constraints() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("--some")
+        .arg("$.users")
+        .arg("id,name,email")
+        .arg("--count")
+        .write_stdin(
+            r#"{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Bea","email":"b@example.test"}]}
+{"users":[{"id":3},{"name":"Cy","email":"c@example.test"}]}"#,
+        )
+        .assert()
+        .success()
+        .stdout("1\n");
+}
+
+#[test]
 fn find_show_projects_value_with_source_line_metadata() {
     let stdout = command_stdout(
         &[

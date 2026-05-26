@@ -418,6 +418,19 @@ function benchmarkTasks(f, t) {
       answerFrom: stdoutAnswer,
     }),
 
+    jscanTask("find_array_object_same_item", [t.jscan, "find", f.orders10k, "--some", "$.items", "sku=ABC,qty=1", "--count"], "one-pass same-array-item multi-field predicate", {
+      expectedAnswer: "500",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_array_object_same_item", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jq same-array-item multi-field predicate", {
+      expectedAnswer: "500",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_array_object_same_item", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC" and .qty? == 1) then . + 1 else . end)', f.orders10k], "jaq same-array-item multi-field predicate", {
+      expectedAnswer: "500",
+      answerFrom: stdoutAnswer,
+    }),
+
     toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
       expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
