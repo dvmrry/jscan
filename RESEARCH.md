@@ -884,6 +884,47 @@ stream opaque `.json` JSONL instead of trying a whole-file JSON parse first.
 Compiled predicate tries still look premature; current wins come from avoiding
 repeated command passes and avoiding overcollection.
 
+### Known Inefficiencies
+
+The main inefficiency is product-shaped: `jscan` is a scout, not a hot-path
+query engine. That is useful when the schema is unknown and the alternative is
+several blind `jq`/`rg` probes, but wasteful when the caller already knows the
+shape and query.
+
+Concrete limits:
+
+- `profile` intentionally does more work than many narrow tasks need. It
+  inventories paths, sources, containers, samples, common values, shape facts,
+  and next-tool hints, then trims to budget. That is good for orientation and
+  inefficient for a known query.
+- There is no reuse or cache layer. If an agent runs `profile`, then `paths`,
+  then `grep`, the same input is reparsed for each command. This is acceptable
+  on small evidence and wasteful on large JSONL.
+- `rg` is the right answer for raw text questions such as "does this string
+  occur?" or "count lines containing X." `jscan` should route to `rg`, not try
+  to compete.
+- `fastgron` is very strong for flattening. `jscan` should recommend it for
+  flattening workflows rather than growing broad flattened-output features.
+- `quicktype`, `genson-cli`, and schema-specific tools remain better formal
+  schema generators once input format and record shape are known. `jscan`
+  should provide schema-skeleton guidance and routing, not claim that lane.
+- Directory scans have real overhead: file walking, per-file parsing, source
+  metadata, and per-file error reporting. This is useful reconnaissance, but
+  slower than scanning one known JSONL stream.
+- Budgeting is honest but still approximate in spirit. Tiny budgets can exceed
+  the requested size while emitting valid JSON, now flagged with
+  `budget.minimum_bytes_exceeded`.
+- A bounded profile can still be too broad for an agent. The next product
+  improvement is sharper narrowing modes, for example only paths, only likely
+  record roots, only schema skeleton, or only query hints.
+- `next_tools` should become more decision-like. The useful answer is often
+  "use `jq` for this," "use `rg` for this," "use `fastgron` for this," or
+  "normalize JSONL before `quicktype`," not just a list of observations.
+
+So the tool is inefficient when used repeatedly or when the schema is already
+known. Its value is bounded reconnaissance over unknown, ugly, or mixed JSON
+evidence.
+
 ## Name Check
 
 Do not finalize the name until the wedge is chosen.
