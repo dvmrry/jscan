@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use jscan::{
-    InputFormat, InputOptions, OutputMode, PathsOptions, ProfileOptions, ShapeOptions,
-    build_profile, collect_path_list, collect_paths, discover_inputs, infer_shape, write_path_list,
-    write_paths, write_profile, write_shape,
+    FindOptions, FindPredicate, InputFormat, InputOptions, MatchMode, OutputMode, PathsOptions,
+    ProfileOptions, ShapeOptions, build_profile, collect_find, collect_path_list, collect_paths,
+    discover_inputs, infer_shape, parse_path_expr, write_find_matches, write_find_report,
+    write_path_list, write_paths, write_profile, write_shape,
 };
 
 #[derive(Debug, Parser)]
@@ -24,6 +25,8 @@ enum Command {
     Shape(ShapeCommand),
     /// Build a bounded reconnaissance profile for agents.
     Profile(ProfileCommand),
+    /// Search records with multiple structural predicates in one pass.
+    Find(FindCommand),
 }
 
 #[derive(Debug, Parser)]
@@ -50,6 +53,44 @@ struct ProfileCommand {
     /// Advisory output budget for JSON profile reports, e.g. 20kb or 1mb.
     #[arg(long, default_value = "20kb")]
     budget: String,
+}
+
+#[derive(Debug, Parser)]
+struct FindCommand {
+    #[command(flatten)]
+    scan: ScanArgs,
+
+    /// Require a path to exist on the record.
+    #[arg(long = "has", value_name = "PATH")]
+    has: Vec<String>,
+
+    /// Require a path to be absent from the record.
+    #[arg(long = "missing", value_name = "PATH")]
+    missing: Vec<String>,
+
+    /// Require PATH to equal VALUE. May be repeated.
+    #[arg(long = "eq", value_names = ["PATH", "VALUE"], num_args = 2)]
+    eq: Vec<String>,
+
+    /// Require PATH to contain VALUE as a string substring or array item.
+    #[arg(long = "contains", value_names = ["PATH", "VALUE"], num_args = 2)]
+    contains: Vec<String>,
+
+    /// Treat top-level values at PATH as records before applying predicates.
+    #[arg(long, value_name = "PATH")]
+    record_root: Option<String>,
+
+    /// Match if any predicate matches. Defaults to requiring all predicates.
+    #[arg(long)]
+    any: bool,
+
+    /// Emit only the matched record count unless --json is set.
+    #[arg(long)]
+    count: bool,
+
+    /// Maximum matching records to include in rendered output. Use 0 for none.
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
 }
 
 #[derive(Debug, Args)]
@@ -190,6 +231,24 @@ fn main() -> Result<()> {
                 profile_report.error_count,
             )?;
         }
+        Command::Find(cmd) => {
+            let output = output_mode(&cmd.scan);
+            let inputs = discover_inputs(&cmd.scan.inputs, cmd.scan.all_files)?;
+            let options = find_options(&cmd)?;
+            let report = collect_find(&inputs, &input_options(&cmd.scan), &options)?;
+
+            let stdout = io::stdout();
+            let mut lock = stdout.lock();
+            if cmd.scan.json {
+                write_find_report(&mut lock, &report, output)?;
+            } else if cmd.count {
+                writeln!(lock, "{}", report.matched_records)?;
+            } else {
+                write_find_matches(&mut lock, &report)?;
+            }
+            lock.flush()?;
+            enforce_strict(cmd.scan.strict, report.partial, report.error_count)?;
+        }
     }
 
     Ok(())
@@ -246,6 +305,48 @@ fn input_options(args: &ScanArgs) -> InputOptions {
         },
         max_errors: args.max_errors,
     }
+}
+
+fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
+    let mut predicates = Vec::new();
+
+    for path in &cmd.has {
+        predicates.push(FindPredicate::Has(parse_path_expr(path)?));
+    }
+    for path in &cmd.missing {
+        predicates.push(FindPredicate::Missing(parse_path_expr(path)?));
+    }
+    for pair in cmd.eq.chunks_exact(2) {
+        predicates.push(FindPredicate::Eq {
+            path: parse_path_expr(&pair[0])?,
+            value: pair[1].clone(),
+        });
+    }
+    for pair in cmd.contains.chunks_exact(2) {
+        predicates.push(FindPredicate::Contains {
+            path: parse_path_expr(&pair[0])?,
+            value: pair[1].clone(),
+        });
+    }
+
+    if predicates.is_empty() {
+        bail!("find requires at least one predicate");
+    }
+
+    Ok(FindOptions {
+        predicates,
+        mode: if cmd.any {
+            MatchMode::Any
+        } else {
+            MatchMode::All
+        },
+        record_root: cmd
+            .record_root
+            .as_deref()
+            .map(parse_path_expr)
+            .transpose()?,
+        match_limit: cmd.limit,
+    })
 }
 
 fn enforce_strict(strict: bool, partial: bool, error_count: usize) -> Result<()> {

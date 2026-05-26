@@ -787,6 +787,33 @@ Follow-up tests:
   verdict. The richer `jscan paths`/`profile` outputs still cost about 56-58 ms
   on this fixture, but a focused scout lane can be materially faster.
 
+### Multi-Search Experiment
+
+First cut:
+
+- Added `jscan find` as a one-pass structural search command.
+- Supported predicates: `--has PATH`, `--missing PATH`, `--eq PATH VALUE`,
+  `--contains PATH VALUE`, default all-match mode, optional `--any`, optional
+  `--record-root PATH`, `--count`, `--limit`, and `--json`.
+- The command parses each record once and evaluates multiple predicates in the
+  same pass. It still uses `serde_json::Value` and currently evaluates each
+  predicate path separately per record; there is no predicate trie or streaming
+  parser yet.
+
+Benchmark on synthetic Splunk JSONL, five runs:
+
+- `jscan find --has $.result.Host --eq $.result.ConnectionStatus timeout
+  --contains $.result.domainNames dev.azure.com --count`: 21.30 ms.
+- Equivalent single jq combined predicate: 46.10 ms.
+- Equivalent single jaq combined predicate: 38.07 ms.
+- Three separate jq probe counts over the same file: 138.34 ms.
+
+This is the strongest evidence so far for the agentic wedge: one bounded
+structural search pass can replace repeated jq/jg/rg probing over the same
+evidence. The next implementation question is whether to optimize `find` with a
+compiled predicate trie, richer output (`--show path,line,value`), or automatic
+handoff from `profile` next-tool hints.
+
 ## Name Check
 
 Do not finalize the name until the wedge is chosen.

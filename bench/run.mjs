@@ -288,6 +288,17 @@ function writeNoisyDir(dir) {
 }
 
 function benchmarkTasks(f, t) {
+  const splunkCombinedPredicate =
+    'reduce inputs as $row (0; if ($row.result.Host? != null and $row.result.ConnectionStatus? == "timeout" and any(($row.result.domainNames? // [])[]; . == "dev.azure.com")) then . + 1 else . end)';
+  const splunkRepeatedProbeCounts = [
+    "sh",
+    "-c",
+    'host=$("$1" -n \'reduce inputs as $row (0; if $row.result.Host? != null then . + 1 else . end)\' "$2"); timeout=$("$1" -n \'reduce inputs as $row (0; if $row.result.ConnectionStatus? == "timeout" then . + 1 else . end)\' "$2"); azure=$("$1" -n \'reduce inputs as $row (0; if any(($row.result.domainNames? // [])[]; . == "dev.azure.com") then . + 1 else . end)\' "$2"); printf "%s,%s,%s\\n" "$host" "$timeout" "$azure"',
+    "sh",
+    t.jq,
+    f.splunk10k,
+  ];
+
   return [
     jscanTask("profile_splunk_10k", [t.jscan, "profile", f.splunk10k, "--budget", "20kb", "--json"], "bounded scout profile over Splunk-style JSONL"),
     jscanTask("paths_splunk_10k", [t.jscan, "paths", f.splunk10k, "--json"], "path/type inventory over JSONL"),
@@ -350,6 +361,27 @@ function benchmarkTasks(f, t) {
     toolTask("field_presence_connection_status", "jt", [t.jt, f.splunk10k, "fields"], "jsont field listing includes .result.ConnectionStatus", {
       expectedAnswer: "present",
       answerFrom: stdoutIncludesAnswer(".result.ConnectionStatus"),
+    }),
+
+    jscanTask("find_combined_splunk", [t.jscan, "find", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--count"], "one-pass multi-predicate structural count", {
+      expectedAnswer: "227",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_combined_splunk", "jq", [t.jq, "-n", splunkCombinedPredicate, f.splunk10k], "single jq query with equivalent combined predicates", {
+      expectedAnswer: "227",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_combined_splunk", "jaq", [t.jaq, "-n", splunkCombinedPredicate, f.splunk10k], "single jaq query with equivalent combined predicates", {
+      expectedAnswer: "227",
+      answerFrom: stdoutAnswer,
+    }),
+    jscanTask("multi_probe_counts_splunk", [t.jscan, "find", f.splunk10k, "--has", "$.result.Host", "--eq", "$.result.ConnectionStatus", "timeout", "--contains", "$.result.domainNames", "dev.azure.com", "--json", "--limit", "0"], "one-pass independent counts for three structural probes", {
+      expectedAnswer: "10000,2500,910",
+      answerFrom: findPredicateCountsAnswer,
+    }),
+    toolTask("multi_probe_counts_splunk", "jqx3", splunkRepeatedProbeCounts, "three separate jq probe counts over the same file", {
+      expectedAnswer: "10000,2500,910",
+      answerFrom: stdoutAnswer,
     }),
 
     toolTask("filter_zia_block", "jq", [t.jq, "[.[] | select(.action == \"BLOCK\")] | length", f.zia10k], "structural value predicate over top-level array", {
@@ -516,6 +548,11 @@ function pathCountAnswer(displayPath) {
 function pathsLengthAnswer(stdout) {
   const report = JSON.parse(stdout.toString("utf8"));
   return String(report.paths.length);
+}
+
+function findPredicateCountsAnswer(stdout) {
+  const report = JSON.parse(stdout.toString("utf8"));
+  return report.predicates.map((predicate) => String(predicate.matched_records)).join(",");
 }
 
 function runOnce(command, stdinBuffer = null) {

@@ -2,6 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
+use crate::find::FindReport;
 use crate::paths::{PathListReport, PathReport};
 use crate::profile::ProfileReport;
 use crate::shape::ShapeReport;
@@ -32,6 +33,31 @@ pub fn write_path_list<W: Write>(writer: &mut W, report: &PathListReport) -> Res
     Ok(())
 }
 
+pub fn write_find_report<W: Write>(
+    writer: &mut W,
+    report: &FindReport,
+    mode: OutputMode,
+) -> Result<()> {
+    match mode {
+        OutputMode::Json => {
+            serde_json::to_writer_pretty(&mut *writer, report)?;
+            writeln!(writer)?;
+        }
+        OutputMode::Pretty => write_pretty_find(writer, report)?,
+    }
+
+    Ok(())
+}
+
+pub fn write_find_matches<W: Write>(writer: &mut W, report: &FindReport) -> Result<()> {
+    for matched in &report.matches {
+        serde_json::to_writer(&mut *writer, &matched.value)?;
+        writeln!(writer)?;
+    }
+
+    Ok(())
+}
+
 pub fn write_shape<W: Write>(writer: &mut W, report: &ShapeReport, mode: OutputMode) -> Result<()> {
     match mode {
         OutputMode::Json => {
@@ -55,6 +81,39 @@ pub fn write_profile<W: Write>(
             writeln!(writer)?;
         }
         OutputMode::Pretty => write_pretty_profile(writer, report)?,
+    }
+
+    Ok(())
+}
+
+fn write_pretty_find<W: Write>(writer: &mut W, report: &FindReport) -> Result<()> {
+    writeln!(
+        writer,
+        "FIND\tmatched:{}\tscanned:{}\terrors:{}",
+        report.matched_records, report.scanned_records, report.error_count
+    )?;
+
+    if !report.predicates.is_empty() {
+        writeln!(writer)?;
+        writeln!(writer, "PREDICATE\tMATCHED_RECORDS")?;
+        for predicate in &report.predicates {
+            writeln!(
+                writer,
+                "{}\t{}",
+                predicate.predicate, predicate.matched_records
+            )?;
+        }
+    }
+
+    if !report.errors.is_empty() {
+        writeln!(writer)?;
+        writeln!(writer, "ERRORS")?;
+        for error in &report.errors {
+            match error.line {
+                Some(line) => writeln!(writer, "{}:{}\t{}", error.source, line, error.message)?,
+                None => writeln!(writer, "{}\t{}", error.source, error.message)?,
+            }
+        }
     }
 
     Ok(())

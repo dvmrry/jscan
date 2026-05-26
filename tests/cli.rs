@@ -48,6 +48,101 @@ fn paths_plain_conflicts_with_json_output() {
 }
 
 #[test]
+fn find_counts_multiple_predicates_in_one_pass() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("tests/fixtures/splunk.jsonl")
+        .arg("--has")
+        .arg("$.result.Host")
+        .arg("--eq")
+        .arg("$.result.ConnectionStatus")
+        .arg("timeout")
+        .arg("--contains")
+        .arg("$.result.domainNames")
+        .arg("contoso.test")
+        .arg("--count")
+        .assert()
+        .success()
+        .stdout("1\n");
+}
+
+#[test]
+fn find_any_mode_matches_if_one_predicate_matches() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("tests/fixtures/splunk.jsonl")
+        .arg("--any")
+        .arg("--eq")
+        .arg("$.result.action")
+        .arg("BLOCK")
+        .arg("--eq")
+        .arg("$.result.ConnectionStatus")
+        .arg("close")
+        .arg("--count")
+        .assert()
+        .success()
+        .stdout("2\n");
+}
+
+#[test]
+fn find_json_reports_per_predicate_counts() {
+    let output = command_json(
+        &[
+            "find",
+            "tests/fixtures/splunk.jsonl",
+            "--has",
+            "$.result.Host",
+            "--eq",
+            "$.result.ConnectionStatus",
+            "timeout",
+            "--json",
+            "--limit",
+            "0",
+        ],
+        None,
+    );
+
+    assert_eq!(output["schema"], "jscan.find.v1");
+    assert_eq!(output["scanned_records"], 2);
+    assert_eq!(output["matched_records"], 1);
+    assert_eq!(output["predicates"][0]["matched_records"], 2);
+    assert_eq!(output["predicates"][1]["matched_records"], 1);
+    assert_eq!(output.get("matches"), None);
+}
+
+#[test]
+fn find_record_root_treats_nested_values_as_records() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("--record-root")
+        .arg("$.list[]")
+        .arg("--has")
+        .arg("$.rare")
+        .arg("--count")
+        .write_stdin(r#"{"list":[{"name":"a"},{"name":"b","rare":true}]}"#)
+        .assert()
+        .success()
+        .stdout("1\n");
+}
+
+#[test]
+fn find_requires_at_least_one_predicate() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("tests/fixtures/splunk.jsonl")
+        .arg("--count")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "find requires at least one predicate",
+        ));
+}
+
+#[test]
 fn paths_outputs_stable_json_with_errors() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
