@@ -465,8 +465,11 @@ Local machine caveats:
 - `rg` is expected to win raw text smoke tests, but those tasks are marked
   `raw_text` because they are not structurally safe JSON record predicates.
 - The first harness run exposed a directory-profile budget leak. `profile` now
-  truncates high-cardinality source/container/root tails when needed; the same
-  many-small fixture now emits 15,747 bytes under a 20 KB budget.
+  truncates high-cardinality source/container/root tails when needed and reports
+  `budget.minimum_bytes_exceeded` for budgets below the smallest valid report.
+  The same many-small fixture emits about 15 KB under a 20 KB budget, and a
+  long-path workflow-log repro that previously emitted 20,873 bytes now emits
+  16,476 bytes.
 
 Downstream harness review found two false-positive benchmark rows in the first
 version:
@@ -767,6 +770,11 @@ This keeps the language/runtime question honest. A faster Go row does not imply
 Go is faster than Rust; it may simply do less work or emit a smaller artifact.
 The fair question is which tool produces the needed artifact fastest and with
 the least agent follow-up.
+
+The benchmark report now separates scorecard rows into fair competitor races,
+solo coverage rows, expected failures, and missing optional tools. This keeps
+fixture coverage and optional-tool availability visible without making the
+competitive table look better or worse than it is.
 
 Follow-up tests:
 

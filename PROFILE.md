@@ -78,6 +78,8 @@ Budgeting rules:
   may be truncated after lower-priority evidence is reduced; record omitted
   tails in `budget.omitted`.
 - When trimming occurs, report what was omitted.
+- If the requested budget is smaller than the minimum valid report, emit the
+  smallest report possible and set `budget.minimum_bytes_exceeded: true`.
 - The JSON report should remain valid and schema-stable even when budgeted.
 
 Priority order:
@@ -106,6 +108,7 @@ The JSON output should be versioned, for example:
     "requested_bytes": 20480,
     "estimated_bytes": 12345,
     "truncated": false,
+    "minimum_bytes_exceeded": false,
     "omitted": []
   },
   "sources": [],

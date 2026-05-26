@@ -45,6 +45,7 @@ pub struct BudgetReport {
     pub requested_bytes: usize,
     pub estimated_bytes: usize,
     pub truncated: bool,
+    pub minimum_bytes_exceeded: bool,
     pub omitted: Vec<String>,
 }
 
@@ -189,6 +190,7 @@ pub fn build_profile(
             requested_bytes: options.budget_bytes,
             estimated_bytes: 0,
             truncated: false,
+            minimum_bytes_exceeded: false,
             omitted: Vec::new(),
         },
         sources: profile_sources,
@@ -549,6 +551,7 @@ fn profile_samples(
 }
 
 fn apply_budget(report: &mut ProfileReport, budget_bytes: usize) -> Result<()> {
+    report.budget.minimum_bytes_exceeded = false;
     refresh_estimate(report)?;
     if budget_bytes == 0 || report.budget.estimated_bytes <= budget_bytes {
         return Ok(());
@@ -563,6 +566,9 @@ fn apply_budget(report: &mut ProfileReport, budget_bytes: usize) -> Result<()> {
         }
     }
 
+    report.budget.minimum_bytes_exceeded = true;
+    push_omitted(&mut report.budget.omitted, "budget_minimum_bytes_exceeded");
+    refresh_estimate(report)?;
     Ok(())
 }
 
@@ -649,6 +655,29 @@ const BUDGET_STEPS: &[BudgetStep] = &[
     BudgetStep::Sources(12),
     BudgetStep::Containers(12),
     BudgetStep::RecordRoots(12),
+    BudgetStep::SourceFields(4),
+    BudgetStep::SourceArrays(2),
+    BudgetStep::Sources(6),
+    BudgetStep::Containers(6),
+    BudgetStep::RecordRoots(6),
+    BudgetStep::PathFacts(2),
+    BudgetStep::ShapeFacts(1),
+    BudgetStep::NextTools(1),
+    BudgetStep::Errors(2),
+    BudgetStep::Sources(3),
+    BudgetStep::Containers(3),
+    BudgetStep::RecordRoots(3),
+    BudgetStep::PathFacts(1),
+    BudgetStep::ShapeFacts(0),
+    BudgetStep::NextTools(0),
+    BudgetStep::Errors(0),
+    BudgetStep::Sources(1),
+    BudgetStep::Containers(1),
+    BudgetStep::RecordRoots(1),
+    BudgetStep::PathFacts(0),
+    BudgetStep::Sources(0),
+    BudgetStep::Containers(0),
+    BudgetStep::RecordRoots(0),
 ];
 
 fn apply_budget_step(report: &mut ProfileReport, step: BudgetStep) {

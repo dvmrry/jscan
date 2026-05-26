@@ -681,6 +681,7 @@ fn profile_budget_matches_emitted_json_and_preserves_evidence() {
             .expect("estimated bytes"),
         stdout.len() as u64
     );
+    assert_eq!(output["budget"]["minimum_bytes_exceeded"], false);
     assert!(
         !output["samples"].as_array().expect("samples").is_empty(),
         "budgeting should preserve representative samples at 20kb"
@@ -697,9 +698,24 @@ fn profile_budget_matches_emitted_json_and_preserves_evidence() {
 #[test]
 fn profile_budget_bounds_many_source_directories() {
     let dir = tempdir().expect("tempdir");
-    for file_index in 0..120 {
+    let input = dir
+        .path()
+        .join("this")
+        .join("is")
+        .join("a")
+        .join("long")
+        .join("source")
+        .join("path")
+        .join("for")
+        .join("workflow")
+        .join("logs");
+    fs::create_dir_all(&input).expect("create nested fixture");
+
+    for file_index in 0..200 {
         fs::write(
-            dir.path().join(format!("case-{file_index:03}.json")),
+            input.join(format!(
+                "workflow-export-case-{file_index:03}-with-extra-long-name.json"
+            )),
             format!(
                 r#"{{"totalPages":1,"totalCount":1,"list":[{{"id":"case-{file_index}","status":"ok"}}]}}"#
             ),
@@ -710,7 +726,7 @@ fn profile_budget_bounds_many_source_directories() {
     let stdout = command_stdout(
         &[
             "profile",
-            dir.path().to_str().expect("utf-8 path"),
+            input.to_str().expect("utf-8 path"),
             "--json",
             "--budget",
             "20kb",
@@ -731,9 +747,29 @@ fn profile_budget_bounds_many_source_directories() {
         stdout.len() as u64
     );
     assert_eq!(output["budget"]["truncated"], true);
+    assert_eq!(output["budget"]["minimum_bytes_exceeded"], false);
     assert!(
         json_strings(&output["budget"]["omitted"]).contains(&"sources_tail".to_string()),
         "expected sources_tail omission for large directory profile"
+    );
+}
+
+#[test]
+fn profile_reports_when_budget_is_below_minimum_report_floor() {
+    let stdout = command_stdout(
+        &["profile", "--json", "--budget", "256"],
+        Some(r#"{"status":"ok","id":1}"#),
+    );
+    let output: Value = serde_json::from_slice(&stdout).expect("json output");
+
+    assert_eq!(output["budget"]["requested_bytes"], 256);
+    assert_eq!(output["budget"]["truncated"], true);
+    assert_eq!(output["budget"]["minimum_bytes_exceeded"], true);
+    assert!(
+        output["budget"]["estimated_bytes"]
+            .as_u64()
+            .expect("estimated bytes")
+            > 256
     );
 }
 

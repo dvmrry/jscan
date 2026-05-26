@@ -78,6 +78,7 @@ for (const task of tasks) {
   console.error(`${row.task} / ${row.tool}: ${status}`);
 }
 
+annotateCategories(rows);
 writeCsv(csvPath, rows);
 writeMarkdown(mdPath, rows, fixtures, tools, options);
 writeCsv(latestCsvPath, rows);
@@ -462,7 +463,9 @@ function benchmarkTasks(f, t) {
     }),
 
     toolTask("schema_splunk_jsonl", "jt", [t.jt, f.splunk10k, "schema"], "jsont schema/frequency profile over JSONL"),
-    toolTask("schema_splunk_jsonl", "quicktype", [t.quicktype, "--lang", "schema", f.splunk10k], "quicktype direct JSONL input; expected to fail on line-delimited JSON"),
+    toolTask("schema_splunk_jsonl", "quicktype", [t.quicktype, "--lang", "schema", f.splunk10k], "quicktype direct JSONL input; expected to fail on line-delimited JSON", {
+      expectedStatus: "exit:1",
+    }),
     toolTask("schema_splunk_array", "quicktype", [t.quicktype, "--lang", "schema", f.splunkArray10k], "quicktype schema after JSONL is normalized to an array"),
     toolTask("schema_paged_wrapper", "quicktype", [t.quicktype, "--lang", "schema", f.paged5k], "quicktype schema over paged JSON wrapper"),
     toolTask("schema_splunk_jsonl", "genson-cli", [t.gensonCli, "--ndjson", f.splunk10k], "genson-cli schema inference over NDJSON"),
@@ -533,6 +536,9 @@ function runBenchmark(task, opts) {
   ) {
     status = "wrong_answer";
   }
+  if (task.expectedStatus && status === task.expectedStatus) {
+    status = "expected_failure";
+  }
   const times = runs.map((run) => run.elapsedMs).sort((a, b) => a - b);
   const lastAnswer = answers.at(-1);
   const stdoutBytes = last?.stdout.length ?? 0;
@@ -555,6 +561,7 @@ function runBenchmark(task, opts) {
     stdout_sha256: stdoutSha256,
     answer: lastAnswer?.error ? `error:${lastAnswer.error}` : (lastAnswer?.value ?? ""),
     expected_answer: task.expectedAnswer ?? "",
+    category: "",
     command: commandDisplay(task.command),
     note: task.note,
   };
@@ -635,9 +642,38 @@ function missingRow(task) {
     stdout_sha256: "",
     answer: "",
     expected_answer: task.expectedAnswer ?? "",
+    category: "",
     command: commandDisplay(task.command),
     note: task.note,
   };
+}
+
+function annotateCategories(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!groups.has(row.task)) {
+      groups.set(row.task, []);
+    }
+    groups.get(row.task).push(row);
+  }
+
+  for (const row of rows) {
+    if (row.status === "missing") {
+      row.category = "missing_optional_tool";
+    } else if (row.status === "expected_failure") {
+      row.category = "expected_failure";
+    }
+  }
+
+  for (const group of groups.values()) {
+    const comparable = group.filter(
+      (row) => row.category !== "missing_optional_tool" && row.category !== "expected_failure",
+    );
+    const category = comparable.length <= 1 ? "solo_coverage" : "fair_competitor_race";
+    for (const row of comparable) {
+      row.category = category;
+    }
+  }
 }
 
 function median(values) {
@@ -668,6 +704,7 @@ function writeCsv(path, rows) {
   const columns = [
     "task",
     "tool",
+    "category",
     "semantic",
     "status",
     "runs",
@@ -697,12 +734,22 @@ function writeMarkdown(path, rows, fixtures, tools, opts) {
   const toolRows = Object.entries(tools)
     .map(([name, value]) => `| ${name} | ${value ? relative(value) : "missing"} |`)
     .join("\n");
-  const resultRows = rows
-    .map(
-      (row) =>
-        `| ${row.task} | ${row.tool} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.answer)} | ${escapeMd(row.expected_answer)} | ${escapeMd(row.note)} |`,
-    )
+  const categoryRows = [
+    ["fair_competitor_race", "Fair competitor races"],
+    ["solo_coverage", "Solo coverage rows"],
+    ["expected_failure", "Expected failure rows"],
+    ["missing_optional_tool", "Missing optional tools"],
+  ]
+    .map(([category, label]) => `| ${label} | ${rows.filter((row) => row.category === category).length} |`)
     .join("\n");
+  const resultSections = [
+    ["fair_competitor_race", "Fair Competitor Races"],
+    ["solo_coverage", "Solo Coverage Rows"],
+    ["expected_failure", "Expected Failure Rows"],
+    ["missing_optional_tool", "Missing Optional Tools"],
+  ]
+    .map(([category, title]) => resultSection(title, rows.filter((row) => row.category === category)))
+    .join("\n\n");
 
   writeFileSync(
     path,
@@ -725,16 +772,42 @@ ${toolRows}
 | --- | --- | ---: |
 ${fixtureRows}
 
+## Scorecard
+
+| Category | Rows |
+| --- | ---: |
+${categoryRows}
+
 ## Results
+
+${resultSections}
+
+Full command strings, output hashes, answer validation fields, and categories are
+in the CSV result next to this file.
+`,
+  );
+}
+
+function resultSection(title, rows) {
+  if (rows.length === 0) {
+    return `### ${title}
+
+No rows.`;
+  }
+
+  const resultRows = rows
+    .map(
+      (row) =>
+        `| ${row.task} | ${row.tool} | ${row.semantic} | ${row.status} | ${row.runs} | ${row.median_ms.toFixed(2)} | ${row.stdout_bytes} | ${escapeMd(row.answer)} | ${escapeMd(row.expected_answer)} | ${escapeMd(row.note)} |`,
+    )
+    .join("\n");
+
+  return `### ${title}
 
 | Task | Tool | Semantic | Status | Runs | Median ms | Stdout bytes | Answer | Expected | Note |
 | --- | --- | --- | --- | ---: | ---: | ---: | --- | --- | --- |
 ${resultRows}
-
-Full command strings, output hashes, and answer validation fields are in the CSV
-result next to this file.
-`,
-  );
+`;
 }
 
 function csvCell(value) {
