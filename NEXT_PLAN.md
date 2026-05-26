@@ -29,7 +29,44 @@ The next work should make that positioning sharper, not broader.
 
 ## Proposed Order
 
-### 1. Make `next_tools` Decision-Like
+### 1. Unify Input Classification Before Recommendations
+
+Current problem:
+
+The profile-to-grep handoff is only trustworthy if each command classifies the
+same file the same way. Historically this has drifted: a `.json` file that is
+actually JSONL can be parsed correctly in one path while another command reports
+or handles it differently.
+
+This is a correctness precondition, not a speed project.
+
+Implementation shape:
+
+- Share one input/content classification helper across `paths`, `shape`,
+  `profile`, and `grep`.
+- Keep the current conservative fallback behavior for multiline JSON errors.
+- Do not take on streaming in this step unless it falls out naturally.
+- Add regression tests for:
+  - valid `.json` JSONL
+  - malformed multiline JSON that must not fall back to line-by-line parsing
+  - empty files
+  - mixed valid and invalid JSONL lines
+
+Acceptance:
+
+- `profile`, `paths`, and `grep` report the same effective format for the same
+  input.
+- A `profile.next_tools` command handed to `jscan grep` sees the same record
+  root and record shape that `profile` used to generate it.
+- Mixed-directory grouping can rely on one format/container classification path.
+
+Why first:
+
+Decision-like routing and `catalog` both depend on consistent classification.
+If profile and grep disagree on a file, a correct-looking recommendation can
+produce a wrong answer.
+
+### 2. Make `next_tools` Decision-Like
 
 Current problem:
 
@@ -70,12 +107,12 @@ Acceptance:
 - Docs clearly say these are next-step recommendations, not authoritative
   answers.
 
-Why first:
+Why second:
 
 This directly addresses the biggest product gap from the inefficiency review:
 the tool needs to help choose among existing tools, not pretend to replace them.
 
-### 2. Add `catalog` For Mixed Directories
+### 3. Add `catalog` For Mixed Directories
 
 Current problem:
 
@@ -91,22 +128,25 @@ jscan catalog <dir> --json
 
 Primary output:
 
-- schema or container kind
+- container or schema-kind label
 - file count
 - parsed record count
 - representative files
 - dominant record root
-- top fields or skeleton fields
+- top observed fields and counts
 - parse-error count
 - suggested first-pass command
 
-Likely group keys:
+Initial group key:
 
+- effective format
 - inferred container kind
 - record root display path
-- top-level field fingerprint
-- dominant array field
-- format: JSON, JSONL, fallback JSONL
+
+Do not build a new classifier at first. `catalog` should aggregate facts the
+profile path already computes. Add a top-level field fingerprint only if a real
+folder shows multiple distinct schemas colliding on format + container + record
+root.
 
 Acceptance:
 
@@ -118,13 +158,15 @@ Acceptance:
   groups when their shapes differ.
 - `catalog` stays a classifier. It does not emit full per-path inventories for
   every group unless explicitly requested later.
+- Per-group suggested commands reuse the decision logic from `next_tools`
+  rather than inventing a second routing system.
 
-Why second:
+Why third:
 
 This was one of the strongest real-world signals from private/Downloads-style
 testing. It also avoids making `profile` carry every directory workflow.
 
-### 3. Add Narrow Profile Modes
+### 4. Add Narrow Profile Modes
 
 Current problem:
 
@@ -137,58 +179,61 @@ Possible interface:
 jscan profile <input> --focus overview --json
 jscan profile <input> --focus roots --json
 jscan profile <input> --focus paths --json
-jscan profile <input> --focus schema --json
+jscan profile <input> --focus skeleton --json
 jscan profile <input> --focus hints --json
 ```
 
 Initial implementation can be output filtering over the existing collector.
 Only optimize collection later if benchmarks show the filtered modes need it.
+Do not split these into separate subcommands unless the contracts truly diverge;
+separate commands risk reintroducing duplicate traversal and classification
+seams.
 
 Acceptance:
 
 - Each focus mode has a documented contract.
+- `overview` is a shorter, opinionated summary, not another name for the full
+  default profile.
 - Focus modes reduce output bytes materially on representative fixtures.
 - `--focus hints` can answer "what should I run next?" without dumping a full
   profile.
 - `--focus roots` can answer "where are records?" for Splunk, paged wrappers,
   root arrays, and dominant array fields.
+- `--focus skeleton` means observed fields/types/counts useful for query
+  planning. It is not a JSON Schema generator.
 
-Why third:
+Why fourth:
 
 This fixes context bloat without prematurely creating a cache, daemon, or
 multi-command workflow engine.
 
-### 4. Unify JSONL Detection And Stream Opaque `.json` JSONL
+### 5. Stream Opaque `.json` JSONL
 
 Current problem:
 
-JSONL detection has improved, but the central real-world case remains important:
+Once input classification is shared, the remaining large-file issue is that
 Splunk or API exports may be line-delimited JSON while using a `.json` suffix.
+Those inputs should eventually stream without first trying a whole-file JSON
+parse.
 
 Plan:
 
-- Share one content detector across `paths`, `shape`, `profile`, and `grep`.
 - Avoid a full whole-file JSON parse when a content sniff is confident that the
   file is line-delimited JSON.
 - Preserve current strict/error semantics.
-- Add regression tests for:
-  - valid `.json` JSONL
-  - malformed multiline JSON that must not fall back to line-by-line parsing
-  - empty files
-  - mixed valid and invalid JSONL lines
+- Reuse the shared classifier from step 1.
 
 Acceptance:
 
-- `profile`, `paths`, and `grep` classify the same input the same way.
 - Opaque `.json` JSONL streams without first buffering the entire file.
 - Multiline JSON errors remain honest and do not become misleading line errors.
 
-Why fourth:
+Why fifth:
 
-This is correctness and scale work, but not the highest product gap now that the
-current benchmarks are small and parse-bound.
+Streaming is scale work. It is correctly deferred until after the correctness
+precondition and product-routing work are done.
 
-### 5. Revisit Reuse Or Caching Only With Evidence
+### 6. Revisit Reuse Or Caching Only With Evidence
 
 Current problem:
 
@@ -201,6 +246,8 @@ Do not implement this yet. First collect evidence from real workflows:
 - number of repeated `jscan` commands per investigation
 - whether the same file is reprocessed across turns
 - whether a saved report artifact would be acceptable
+- whether reading and deserializing a saved artifact is actually faster than
+  reparsing the original input
 
 Possible later direction:
 
@@ -219,7 +266,8 @@ Risks:
 Decision gate:
 
 Only build reuse if repeated large-file evidence shows profile/paths/grep are
-regularly chained over the same input and reparsing is the dominant cost.
+regularly chained over the same input, reparsing is the dominant cost, and the
+saved artifact is cheaper to read than the original evidence is to reparse.
 
 ## Verification For Each Step
 
@@ -243,23 +291,29 @@ Benchmark reporting should keep the current categories:
 Rows should enter "fair competitor races" only when they have the same task,
 same output contract, successful status, and same validated non-empty answer.
 
-## Suggested Opus Review Questions
+## Review Notes Incorporated
 
-1. Is the ordering right: routing, then catalog, then focus modes, then JSONL
-   streaming?
-2. Should `catalog` come before decision-like `next_tools`?
-3. Is `--focus` the right interface, or should these be separate subcommands?
-4. Does extending `next_tools` require a schema bump or can it remain
-   backward-compatible?
-5. Is there a simpler way to classify mixed directories without inventing too
-   much schema machinery?
-6. Are we deferring caching for the right reasons?
-7. Are any of these steps drifting toward a query engine or schema generator?
+- Shared input classification is now first because profile-to-grep
+  recommendations and catalog groups depend on every command seeing the same
+  effective format and record shape.
+- Streaming opaque `.json` JSONL is split out as later scale work, not bundled
+  with the correctness precondition.
+- `catalog` follows decision-like `next_tools` so per-group recommendations can
+  reuse one routing policy instead of inventing a second one.
+- Narrow profile modes stay under `--focus`; `skeleton` replaces `schema` to
+  avoid implying a formal schema generator.
+- Extending `next_tools` with additive fields does not require a schema bump;
+  the compatibility rule is documented in `PROFILE.md`.
+- Initial catalog grouping uses facts profile already computes: effective
+  format, container kind, and record root.
+- Reuse/caching remains deferred until evidence shows the saved artifact is
+  cheaper to read and deserialize than the original input is to reparse.
 
 ## Recommended Next Commit
 
-Start with step 1 only:
+Start with steps 1 and 2 as one tightly scoped change:
 
-> Make `profile.next_tools` decision-like without changing the core scanners.
+> Share the input classifier, then make `profile.next_tools` decision-like.
 
-That is the smallest change that most directly improves the product wedge.
+That is the smallest change that makes profile-to-grep recommendations both
+useful and trustworthy.

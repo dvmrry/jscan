@@ -26,6 +26,15 @@ jscan profile evidence.json --budget 20kb --json
 The `jscan` binary name and `jscan.profile.v1` schema identifier are
 provisional until the project name is settled.
 
+## Schema Compatibility
+
+`jscan.profile.v1` allows additive fields. Consumers should ignore unknown
+fields. Adding a field, such as a clearer `next_tools` task label, does not
+require a schema version bump.
+
+Version bumps are reserved for removals, renames, type changes, or semantic
+changes to existing fields.
+
 ## Inputs
 
 Support the same input sources as `paths` and `shape`:
