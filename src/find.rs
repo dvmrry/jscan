@@ -15,6 +15,7 @@ pub struct FindOptions {
     pub predicates: Vec<FindPredicate>,
     pub mode: MatchMode,
     pub record_root: Option<PathExpr>,
+    pub show_path: Option<PathExpr>,
     pub match_limit: usize,
 }
 
@@ -22,8 +23,23 @@ pub struct FindOptions {
 pub enum FindPredicate {
     Has(PathExpr),
     Missing(PathExpr),
-    Eq { path: PathExpr, value: String },
-    Contains { path: PathExpr, value: String },
+    Eq {
+        path: PathExpr,
+        value: String,
+    },
+    Contains {
+        path: PathExpr,
+        value: String,
+    },
+    SomeHas {
+        path: PathExpr,
+        item_path: PathExpr,
+    },
+    SomeEq {
+        path: PathExpr,
+        item_path: PathExpr,
+        value: String,
+    },
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -70,6 +86,10 @@ pub struct FindMatch {
     pub record: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_found: Option<bool>,
     pub value: Value,
 }
 
@@ -77,6 +97,7 @@ struct FindState<'a> {
     predicates: &'a [FindPredicate],
     mode: MatchMode,
     record_root: Option<&'a PathExpr>,
+    show_path: Option<&'a PathExpr>,
     match_limit: usize,
     predicate_matches: Vec<usize>,
     matches: Vec<FindMatch>,
@@ -173,6 +194,7 @@ pub fn collect_find(
         predicates: &options.predicates,
         mode: options.mode,
         record_root: options.record_root.as_ref(),
+        show_path: options.show_path.as_ref(),
         match_limit: options.match_limit,
         predicate_matches: vec![0; options.predicates.len()],
         matches: Vec::new(),
@@ -454,15 +476,54 @@ impl FindState<'_> {
 
         if record_matched {
             self.matched_records += 1;
-            if self.matches.len() < self.match_limit {
+            self.push_match(source, record, line, value);
+        }
+    }
+
+    fn push_match(&mut self, source: &str, record: usize, line: Option<usize>, value: &Value) {
+        if self.matches.len() >= self.match_limit {
+            return;
+        }
+
+        if let Some(show_path) = self.show_path {
+            let mut values = Vec::new();
+            values_at_path(value, &show_path.segments, &mut values);
+            if values.is_empty() {
                 self.matches.push(FindMatch {
                     source: source.to_string(),
                     record,
                     line,
+                    path: Some(show_path.raw.clone()),
+                    value_found: Some(false),
+                    value: Value::Null,
+                });
+                return;
+            }
+
+            for value in values {
+                if self.matches.len() >= self.match_limit {
+                    return;
+                }
+                self.matches.push(FindMatch {
+                    source: source.to_string(),
+                    record,
+                    line,
+                    path: Some(show_path.raw.clone()),
+                    value_found: Some(true),
                     value: value.clone(),
                 });
             }
+            return;
         }
+
+        self.matches.push(FindMatch {
+            source: source.to_string(),
+            record,
+            line,
+            path: None,
+            value_found: None,
+            value: value.clone(),
+        });
     }
 
     fn finish(self) -> FindReport {
@@ -523,6 +584,22 @@ impl FindPredicate {
                 values_at_path(value, &path.segments, &mut values);
                 values.iter().any(|value| value_contains(value, expected))
             }
+            FindPredicate::SomeHas { path, item_path } => {
+                values_at_path(value, &path.segments, &mut values);
+                values
+                    .iter()
+                    .any(|value| array_some(value, item_path, None))
+            }
+            FindPredicate::SomeEq {
+                path,
+                item_path,
+                value: expected,
+            } => {
+                values_at_path(value, &path.segments, &mut values);
+                values
+                    .iter()
+                    .any(|value| array_some(value, item_path, Some(expected)))
+            }
         }
     }
 
@@ -534,6 +611,14 @@ impl FindPredicate {
             FindPredicate::Contains { path, value } => {
                 format!("contains {} {}", path.raw, value)
             }
+            FindPredicate::SomeHas { path, item_path } => {
+                format!("some-has {} {}", path.raw, item_path.raw)
+            }
+            FindPredicate::SomeEq {
+                path,
+                item_path,
+                value,
+            } => format!("some-eq {} {} {}", path.raw, item_path.raw, value),
         }
     }
 }
@@ -563,11 +648,12 @@ fn values_at_path<'a>(value: &'a Value, segments: &[PathSegment], output: &mut V
 }
 
 fn value_equals(value: &Value, expected: &str) -> bool {
-    match value {
-        Value::String(value) => value == expected,
-        _ => serde_json::from_str::<Value>(expected)
-            .map(|expected| value == &expected)
-            .unwrap_or(false),
+    match serde_json::from_str::<Value>(expected) {
+        Ok(expected) => value == &expected,
+        Err(_) => match value {
+            Value::String(value) => value == expected,
+            _ => false,
+        },
     }
 }
 
@@ -577,6 +663,21 @@ fn value_contains(value: &Value, expected: &str) -> bool {
         Value::Array(values) => values.iter().any(|value| value_equals(value, expected)),
         _ => value_equals(value, expected),
     }
+}
+
+fn array_some(value: &Value, item_path: &PathExpr, expected: Option<&str>) -> bool {
+    let Value::Array(items) = value else {
+        return false;
+    };
+
+    items.iter().any(|item| {
+        let mut values = Vec::new();
+        values_at_path(item, &item_path.segments, &mut values);
+        match expected {
+            Some(expected) => values.iter().any(|value| value_equals(value, expected)),
+            None => !values.is_empty(),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -601,6 +702,31 @@ mod tests {
         let predicate = FindPredicate::Contains {
             path: parse_path_expr("$.result.domainNames").expect("path"),
             value: "dev.azure.com".to_string(),
+        };
+
+        assert!(predicate.matches(&value));
+    }
+
+    #[test]
+    fn parses_json_literals_before_string_fallback() {
+        assert!(value_equals(&serde_json::json!(200), "200"));
+        assert!(value_equals(&serde_json::json!("200"), "\"200\""));
+        assert!(value_equals(&serde_json::json!("timeout"), "timeout"));
+        assert!(!value_equals(&serde_json::json!("200"), "200"));
+    }
+
+    #[test]
+    fn some_eq_matches_array_items_by_relative_path() {
+        let value = serde_json::json!({
+            "items": [
+                {"sku": "NOPE"},
+                {"sku": "ABC", "nested": {"id": 1}}
+            ]
+        });
+        let predicate = FindPredicate::SomeEq {
+            path: parse_path_expr("$.items").expect("array path"),
+            item_path: parse_path_expr("$.sku").expect("item path"),
+            value: "ABC".to_string(),
         };
 
         assert!(predicate.matches(&value));

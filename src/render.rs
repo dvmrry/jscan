@@ -51,7 +51,11 @@ pub fn write_find_report<W: Write>(
 
 pub fn write_find_matches<W: Write>(writer: &mut W, report: &FindReport) -> Result<()> {
     for matched in &report.matches {
-        serde_json::to_writer(&mut *writer, &matched.value)?;
+        if matched.path.is_some() {
+            serde_json::to_writer(&mut *writer, matched)?;
+        } else {
+            serde_json::to_writer(&mut *writer, &matched.value)?;
+        }
         writeln!(writer)?;
     }
 

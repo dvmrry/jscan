@@ -76,9 +76,21 @@ struct FindCommand {
     #[arg(long = "contains", value_names = ["PATH", "VALUE"], num_args = 2)]
     contains: Vec<String>,
 
+    /// Require ARRAY_PATH to contain an item where ITEM_PATH exists.
+    #[arg(long = "some-has", value_names = ["ARRAY_PATH", "ITEM_PATH"], num_args = 2)]
+    some_has: Vec<String>,
+
+    /// Require ARRAY_PATH to contain an item where ITEM_PATH equals VALUE.
+    #[arg(long = "some-eq", value_names = ["ARRAY_PATH", "ITEM_PATH", "VALUE"], num_args = 3)]
+    some_eq: Vec<String>,
+
     /// Treat top-level values at PATH as records before applying predicates.
     #[arg(long, value_name = "PATH")]
     record_root: Option<String>,
+
+    /// Project this path from each matched record and include source/line metadata.
+    #[arg(long, value_name = "PATH")]
+    show: Option<String>,
 
     /// Match if any predicate matches. Defaults to requiring all predicates.
     #[arg(long)]
@@ -328,6 +340,19 @@ fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
             value: pair[1].clone(),
         });
     }
+    for pair in cmd.some_has.chunks_exact(2) {
+        predicates.push(FindPredicate::SomeHas {
+            path: parse_path_expr(&pair[0])?,
+            item_path: parse_path_expr(&pair[1])?,
+        });
+    }
+    for chunk in cmd.some_eq.chunks_exact(3) {
+        predicates.push(FindPredicate::SomeEq {
+            path: parse_path_expr(&chunk[0])?,
+            item_path: parse_path_expr(&chunk[1])?,
+            value: chunk[2].clone(),
+        });
+    }
 
     if predicates.is_empty() {
         bail!("find requires at least one predicate");
@@ -345,6 +370,7 @@ fn find_options(cmd: &FindCommand) -> Result<FindOptions> {
             .as_deref()
             .map(parse_path_expr)
             .transpose()?,
+        show_path: cmd.show.as_deref().map(parse_path_expr).transpose()?,
         match_limit: cmd.limit,
     })
 }

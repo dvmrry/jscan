@@ -129,6 +129,50 @@ fn find_record_root_treats_nested_values_as_records() {
 }
 
 #[test]
+fn find_some_eq_matches_array_object_items() {
+    let mut cmd = Command::cargo_bin("jscan").expect("binary");
+
+    cmd.arg("find")
+        .arg("--some-eq")
+        .arg("$.items")
+        .arg("$.sku")
+        .arg("ABC")
+        .arg("--count")
+        .write_stdin(
+            r#"{"items":[{"sku":"NOPE"},{"sku":"ABC","nested":{"id":1}}]}
+{"items":[{"sku":"NOPE"}]}"#,
+        )
+        .assert()
+        .success()
+        .stdout("1\n");
+}
+
+#[test]
+fn find_show_projects_value_with_source_line_metadata() {
+    let stdout = command_stdout(
+        &[
+            "find",
+            "tests/fixtures/splunk.jsonl",
+            "--eq",
+            "$.result.ConnectionStatus",
+            "timeout",
+            "--show",
+            "$.result.Host",
+            "--limit",
+            "1",
+        ],
+        None,
+    );
+    let value: Value = serde_json::from_slice(&stdout).expect("json line");
+
+    assert_eq!(value["source"], "tests/fixtures/splunk.jsonl");
+    assert_eq!(value["line"], 2);
+    assert_eq!(value["path"], "$.result.Host");
+    assert_eq!(value["value_found"], true);
+    assert_eq!(value["value"], "edge-2");
+}
+
+#[test]
 fn find_requires_at_least_one_predicate() {
     let mut cmd = Command::cargo_bin("jscan").expect("binary");
 
@@ -325,6 +369,7 @@ fn profile_detects_splunk_result_wrapper() {
         "display_path",
         "$.result.ConnectionStatus",
     );
+    assert_json_array_contains(&output["next_tools"], "tool", "jscan find");
     assert_json_array_contains(&output["next_tools"], "tool", "rg");
     assert_json_array_contains(&output["next_tools"], "command", "jaq -c '.result' <input>");
 }
@@ -357,6 +402,15 @@ fn profile_detects_paged_list_wrapper() {
             .any(|tool| tool["command"]
                 == "jaq -c '.list[] | select(.domainNames? != null)' <input>"),
         "expected a next-tool command to use .list[] and a selective path"
+    );
+    assert!(
+        output["next_tools"]
+            .as_array()
+            .expect("next_tools")
+            .iter()
+            .any(|tool| tool["command"]
+                == "jscan find <input> --record-root '$.list[]' --has '$.domainNames[]' --json --limit 0"),
+        "expected a jscan find hint to use the record root and a selective path"
     );
 }
 

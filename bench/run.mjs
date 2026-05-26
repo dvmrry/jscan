@@ -54,6 +54,7 @@ const fixtures = {
   splunk10k: join(dataDir, "splunk-10k.jsonl"),
   splunkArray10k: join(dataDir, "splunk-10k-array.json"),
   zia10k: join(dataDir, "zia-array-10k.json"),
+  orders10k: join(dataDir, "orders-10k.jsonl"),
   paged5k: join(dataDir, "paged-wrapper-5k.json"),
   manySmall: join(dataDir, "many-small"),
   noisy: join(dataDir, "noisy"),
@@ -166,6 +167,7 @@ function generateFixtures(root) {
   writeSplunkJsonl(join(root, "splunk-10k.jsonl"), 10_000);
   writeSplunkArray(join(root, "splunk-10k-array.json"), 10_000);
   writeZiaArray(join(root, "zia-array-10k.json"), 10_000);
+  writeOrdersJsonl(join(root, "orders-10k.jsonl"), 10_000);
   writePagedWrapper(join(root, "paged-wrapper-5k.json"), 5_000);
   writeManySmall(join(root, "many-small"), 200, 25);
   writeNoisyDir(join(root, "noisy"));
@@ -231,6 +233,25 @@ function writeZiaArray(path, count) {
     rows.push(row);
   }
   writeFileSync(path, `${JSON.stringify(rows)}\n`);
+}
+
+function writeOrdersJsonl(path, count) {
+  const lines = [];
+  for (let index = 0; index < count; index += 1) {
+    lines.push(JSON.stringify({
+      orderId: `order-${index}`,
+      status: index % 7 === 0 ? "review" : "ok",
+      items: [
+        { sku: index % 5 === 0 ? "ABC" : `SKU-${index % 97}`, qty: (index % 4) + 1 },
+        { sku: `ALT-${index % 53}`, qty: 1 },
+      ],
+      customer: {
+        id: `cust-${index % 400}`,
+        email: index % 9 === 0 ? `cust-${index % 400}@example.test` : null,
+      },
+    }));
+  }
+  writeFileSync(path, `${lines.join("\n")}\n`);
 }
 
 function writePagedWrapper(path, count) {
@@ -381,6 +402,19 @@ function benchmarkTasks(f, t) {
     }),
     toolTask("multi_probe_counts_splunk", "jqx3", splunkRepeatedProbeCounts, "three separate jq probe counts over the same file", {
       expectedAnswer: "10000,2500,910",
+      answerFrom: stdoutAnswer,
+    }),
+
+    jscanTask("find_array_object_sku", [t.jscan, "find", f.orders10k, "--some-eq", "$.items", "$.sku", "ABC", "--count"], "one-pass array-of-object item predicate", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_array_object_sku", "jq", [t.jq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jq array-of-object item predicate", {
+      expectedAnswer: "2000",
+      answerFrom: stdoutAnswer,
+    }),
+    toolTask("find_array_object_sku", "jaq", [t.jaq, "-n", 'reduce inputs as $row (0; if any(($row.items? // [])[]; .sku? == "ABC") then . + 1 else . end)', f.orders10k], "jaq array-of-object item predicate", {
+      expectedAnswer: "2000",
       answerFrom: stdoutAnswer,
     }),
 

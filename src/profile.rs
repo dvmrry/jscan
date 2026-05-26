@@ -808,8 +808,34 @@ fn next_tools(record_roots: &[RecordRootFact], path_facts: &[PathFact]) -> Vec<N
             "project detected record root {root_label}; no narrower scalar presence predicate was found"
         )
     };
+    let jscan_find_command = root
+        .map(|root| {
+            let predicate = candidate
+                .and_then(|fact| {
+                    relative_pointer_segments(&root.pointer_template, &fact.pointer_template)
+                })
+                .filter(|segments| !segments.is_empty())
+                .map(|segments| display_path_from_segments(&segments))
+                .unwrap_or_else(|| "<path>".to_string());
+
+            format!(
+                "jscan find <input> --record-root {} --has {} --json --limit 0",
+                shell_quote(&root.display_path),
+                shell_quote(&predicate)
+            )
+        })
+        .unwrap_or_else(|| "jscan find <input> --has '<path>' --json --limit 0".to_string());
 
     vec![
+        NextToolHint {
+            tool: "jscan find".to_string(),
+            reason:
+                "one-pass structural probe using the detected record root and per-predicate counts"
+                    .to_string(),
+            caveat: "use jq/jaq when you need transformation rather than reconnaissance"
+                .to_string(),
+            command: jscan_find_command,
+        },
         NextToolHint {
             tool: "rg".to_string(),
             reason: "fast raw smoke test for rare strings before structural filtering".to_string(),
@@ -1184,7 +1210,10 @@ fn display_root_field_path(key: &str) -> String {
 }
 
 fn display_path_from_pointer(pointer: &str) -> String {
-    let segments = pointer_segments(pointer);
+    display_path_from_segments(&pointer_segments(pointer))
+}
+
+fn display_path_from_segments(segments: &[String]) -> String {
     if segments.is_empty() {
         return "$".to_string();
     }
@@ -1193,9 +1222,9 @@ fn display_path_from_pointer(pointer: &str) -> String {
     for segment in segments {
         if segment == "*" {
             output.push_str("[]");
-        } else if is_jq_identifier(&segment) {
+        } else if is_jq_identifier(segment) {
             output.push('.');
-            output.push_str(&segment);
+            output.push_str(segment);
         } else {
             output.push('[');
             output.push_str(&serde_json::to_string(&segment).expect("serializing display key"));

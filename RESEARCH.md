@@ -814,6 +814,37 @@ evidence. The next implementation question is whether to optimize `find` with a
 compiled predicate trie, richer output (`--show path,line,value`), or automatic
 handoff from `profile` next-tool hints.
 
+Review follow-up:
+
+- Treat per-predicate breakdown as a first-class product feature. It tells an
+  agent which part of a combined hypothesis failed, instead of returning only a
+  zero-match aggregate.
+- Added explicit array-of-object predicates: `--some-has ARRAY_PATH ITEM_PATH`
+  and `--some-eq ARRAY_PATH ITEM_PATH VALUE`. This covers the recurring
+  "records where an array contains an object with field X = Y" task without
+  overloading string/array `--contains` semantics.
+- Adjusted `--eq` matching so CLI values are parsed as JSON first and fall back
+  to string comparison only when the argument is not JSON. This makes numeric
+  and boolean comparisons explicit while preserving ergonomic string values like
+  `timeout`.
+- Added `--show PATH` to project one path from matching records with
+  source/record/line metadata, avoiding full-record dumps for "show me the
+  matching value" workflows.
+- Added `jscan find` to `profile.next_tools`, using the detected
+  `--record-root` and an observed selective path when available. This closes the
+  profile-to-find loop.
+
+Array-of-object benchmark on synthetic order JSONL, five runs:
+
+- `jscan find --some-eq $.items $.sku ABC --count`: 20.64 ms.
+- Equivalent jq predicate: 41.17 ms.
+- Equivalent jaq predicate: 38.15 ms.
+
+Remaining high-value follow-up: unify JSONL detection across commands and
+stream opaque `.json` JSONL instead of trying a whole-file JSON parse first.
+Compiled predicate tries still look premature; current wins come from avoiding
+repeated command passes and avoiding overcollection.
+
 ## Name Check
 
 Do not finalize the name until the wedge is chosen.
