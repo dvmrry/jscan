@@ -6,7 +6,10 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::input::{DiscoveredInput, InputFormat, InputOptions, input_label, is_jsonl_candidate};
+use crate::input::{
+    ContentClassification, DiscoveredInput, InputFormat, InputOptions, classify_auto_contents,
+    input_label, resolve_input_format,
+};
 
 const REPORT_SCHEMA: &str = "jscan.paths.v1";
 
@@ -115,7 +118,7 @@ pub fn collect_paths(
 
     for input in inputs {
         let label = input_label(input);
-        let format = effective_format(input, input_options.format);
+        let format = resolve_input_format(input, input_options.format);
         let mut source_state = SourceState::new(label, format);
         let before_errors = state.error_count;
         process_input(&mut state, &mut source_state, input);
@@ -137,13 +140,6 @@ fn process_input(
         InputFormat::Json => process_json_document(state, source_state, input, &source),
         InputFormat::Jsonl => process_jsonl_input(state, source_state, input, &source),
         InputFormat::Auto => process_auto_input(state, source_state, input, &source),
-    }
-}
-
-fn effective_format(input: &DiscoveredInput, requested_format: InputFormat) -> InputFormat {
-    match requested_format {
-        InputFormat::Auto if is_jsonl_candidate(input) => InputFormat::Jsonl,
-        format => format,
     }
 }
 
@@ -169,24 +165,21 @@ fn process_auto_input(
         return;
     };
 
-    if contents.trim().is_empty() {
-        return;
-    }
-
-    match serde_json::from_str::<Value>(&contents) {
-        Ok(value) => {
+    match classify_auto_contents(&contents) {
+        ContentClassification::Empty => {}
+        ContentClassification::Json(value) => {
             source_state.set_format(InputFormat::Json);
             source_state.record(&value);
             let root = state.root_node();
             visit_value(state, source, 1, Some(1), root, &value);
         }
-        Err(error) if looks_line_delimited(&contents) => {
+        ContentClassification::Jsonl => {
             let buffered = parse_jsonl_buffer(source, &contents, state.max_errors);
             if buffered.records.is_empty() {
                 state.push_error(ScanError {
                     source: source.to_string(),
-                    line: Some(error.line()),
-                    message: error.to_string(),
+                    line: None,
+                    message: "input looked line-delimited but no JSON records parsed".to_string(),
                 });
                 return;
             }
@@ -194,11 +187,11 @@ fn process_auto_input(
             source_state.set_format(InputFormat::Jsonl);
             apply_jsonl_buffer(state, source_state, source, buffered);
         }
-        Err(error) => {
+        ContentClassification::InvalidJson { line, message } => {
             state.push_error(ScanError {
                 source: source.to_string(),
-                line: Some(error.line()),
-                message: error.to_string(),
+                line: Some(line),
+                message,
             });
         }
     }
@@ -397,19 +390,6 @@ fn apply_jsonl_buffer(
             &record.value,
         );
     }
-}
-
-fn looks_line_delimited(contents: &str) -> bool {
-    let lines = contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-
-    lines.len() > 1
-        && !lines
-            .iter()
-            .any(|line| matches!(*line, "{" | "[" | "}" | "]"))
 }
 
 struct CollectorState {

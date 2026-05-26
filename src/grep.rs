@@ -5,7 +5,10 @@ use anyhow::{Result, bail};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::input::{DiscoveredInput, InputFormat, InputOptions, input_label, is_jsonl_candidate};
+use crate::input::{
+    ContentClassification, DiscoveredInput, InputFormat, InputOptions, classify_auto_contents,
+    input_label, resolve_input_format,
+};
 use crate::paths::ScanError;
 
 const REPORT_SCHEMA: &str = "jscan.grep.v1";
@@ -225,18 +228,11 @@ pub fn collect_grep(
 
     for input in inputs {
         let source = input_label(input);
-        let format = effective_format(input, input_options.format);
+        let format = resolve_input_format(input, input_options.format);
         process_input(&mut state, input, &source, format);
     }
 
     Ok(state.finish())
-}
-
-fn effective_format(input: &DiscoveredInput, requested_format: InputFormat) -> InputFormat {
-    match requested_format {
-        InputFormat::Auto if is_jsonl_candidate(input) => InputFormat::Jsonl,
-        format => format,
-    }
 }
 
 fn process_input(
@@ -264,27 +260,24 @@ fn process_auto_input(state: &mut GrepState<'_>, input: &DiscoveredInput, source
         return;
     };
 
-    if contents.trim().is_empty() {
-        return;
-    }
-
-    match serde_json::from_str::<Value>(&contents) {
-        Ok(value) => process_document_value(state, source, None, &value),
-        Err(error) if looks_line_delimited(&contents) => {
+    match classify_auto_contents(&contents) {
+        ContentClassification::Empty => {}
+        ContentClassification::Json(value) => process_document_value(state, source, None, &value),
+        ContentClassification::Jsonl => {
             let records = process_jsonl_contents(state, source, &contents);
             if records == 0 {
                 state.push_error(ScanError {
                     source: source.to_string(),
-                    line: Some(error.line()),
-                    message: error.to_string(),
+                    line: None,
+                    message: "input looked line-delimited but no JSON records parsed".to_string(),
                 });
             }
         }
-        Err(error) => {
+        ContentClassification::InvalidJson { line, message } => {
             state.push_error(ScanError {
                 source: source.to_string(),
-                line: Some(error.line()),
-                message: error.to_string(),
+                line: Some(line),
+                message,
             });
         }
     }
@@ -451,24 +444,6 @@ fn process_record_rooted_value(
     } else {
         state.scan_record(source, line, value);
     }
-}
-
-fn looks_line_delimited(contents: &str) -> bool {
-    let mut non_empty_lines = 0;
-    for line in contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        non_empty_lines += 1;
-        if matches!(line, "{" | "[" | "}" | "]") {
-            return false;
-        }
-        if non_empty_lines > 1 {
-            return true;
-        }
-    }
-    false
 }
 
 impl GrepState<'_> {

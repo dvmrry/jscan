@@ -620,6 +620,57 @@ fn profile_reports_jsonl_after_auto_fallback_for_json_file() {
 }
 
 #[test]
+fn profile_grep_handoff_classifies_opaque_jsonl_consistently() {
+    let dir = tempdir().expect("tempdir");
+    let input = dir.path().join("splunk-export.json");
+    fs::write(
+        &input,
+        concat!(
+            "{\"preview\":false,\"result\":{\"ConnectionStatus\":\"OPEN\",\"Host\":\"edge-1\"}}\n",
+            "{\"preview\":false,\"result\":{\"ConnectionStatus\":\"CLOSED\",\"Host\":\"edge-2\"}}\n"
+        ),
+    )
+    .expect("write fixture");
+    let input_path = input.to_str().expect("utf-8 path");
+
+    let profile = command_json(&["profile", input_path, "--json", "--budget", "20kb"], None);
+
+    assert_eq!(profile["sources"][0]["format"], "jsonl");
+    assert_json_array_contains(&profile["record_roots"], "display_path", "$.result");
+    assert!(
+        profile["next_tools"]
+            .as_array()
+            .expect("next_tools")
+            .iter()
+            .any(|tool| tool["command"]
+                .as_str()
+                .expect("command")
+                .starts_with("jscan grep <input> --record-root '$.result' --has ")),
+        "expected profile to recommend a grep command rooted at the detected record root"
+    );
+
+    let grep = command_json(
+        &[
+            "grep",
+            input_path,
+            "--record-root",
+            "$.result",
+            "--has",
+            "$.ConnectionStatus",
+            "--json",
+            "--limit",
+            "0",
+        ],
+        None,
+    );
+
+    assert_eq!(grep["error_count"], 0);
+    assert_eq!(grep["scanned_records"], 2);
+    assert_eq!(grep["matched_records"], 2);
+    assert_eq!(grep["predicates"][0]["matched_records"], 2);
+}
+
+#[test]
 fn profile_budget_matches_emitted_json_and_preserves_evidence() {
     let dir = tempdir().expect("tempdir");
     let input = dir.path().join("wide.jsonl");
